@@ -3,6 +3,28 @@ from torch import nn
 from models.utils import param, reverse_packed_sequence, Namespace
 from torch.nn.utils.rnn import PackedSequence
 
+
+class CNNEmbedding(nn.Module):
+    """Model that takes input of shape [n_words, n_chars] and returns char embedding of shape [n_words, embeddingDim]
+       
+        Parameters: 
+            numChars(int): total chars(93)
+            embeddingDim(int): use default 128
+    """
+    def __init__(self, numChars, embeddingDim):
+        super().__init__()
+        self.embedding = nn.Embedding(numChars, embeddingDim)
+        self.conv1d = nn.Conv1d(embeddingDim, embeddingDim, 3, 1, 1)
+    
+    def forward(self, x):
+        x = self.embedding(x)
+        x = x.permute(0, 2, 1)
+        x = self.conv1d(x)
+        val, idx = torch.max(x, 2)
+        return val
+    
+
+
 class TransitionGRU(nn.Module):
     def __init__(self, hidden_units):
         super().__init__()
@@ -128,7 +150,10 @@ class GlobalContextualDeepTransition(nn.Module):
         self.fowardEncoder   = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
         self.backwardEncoder = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
         self.decoder         = DeepTransitionRNN(2*encoderUnits, decoderUnits, transitionNumber)
-        self.output  = nn.Linear(decoderUnits, outputUnits)
+        self.output  = nn.Sequential(
+            nn.Linear(decoderUnits, outputUnits),
+            nn.Softmax(dim=-1)
+        )
         
     def forward(self, sequence, reversedSequence):
         data, batchSizes, sortedIndices, unsortedIndices = sequence
