@@ -59,11 +59,12 @@ def packCharsWithMask(sequences):
     lengths = [len(sentence) for sentence in sequences]
     t = max(lengths)
     
-    result = torch.zeros(b, t, w, dtype=torch.long)
+    result = torch.zeros(t, b, w, dtype=torch.long)
     for i, sentence in enumerate(sequences):
         for j, word in enumerate(sentence):
-            result[i, j, :len(word)] = torch.LongTensor(word)
-    result = pack_padded_sequence(result, lengths, batch_first=False, enforce_sorted=False)
+            result[j, i, :len(word)] = torch.LongTensor(word)
+
+    result = pack_padded_sequence(result, lengths, enforce_sorted=False)
     
     mask = (result.data == 0) * -1e9
     mask = torch.unsqueeze(mask, -1)
