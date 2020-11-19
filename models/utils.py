@@ -45,3 +45,27 @@ def sample_sequence(input_units, lengths):
     y = pack_padded_sequence(pad_sequence(y), lengths, enforce_sorted=False)
     
     return x, y
+
+def packCharsWithMask(sequences):
+    """Takes in a 3d list with axes: sentence, word, char
+    
+        Returns result, mask
+        result is a 3d tensor of shape sentences, max_sentence_length, max_word_length as a packed sequence
+        mask has -1e9 where there is a zero padded character in a word
+    """
+    b = len(sequences)
+    w = max(len(word) for sentence in sequences for word in sentence)
+    
+    lengths = [len(sentence) for sentence in sequences]
+    t = max(lengths)
+    
+    result = torch.zeros(b, t, w, dtype=torch.long)
+    for i, sentence in enumerate(sequences):
+        for j, word in enumerate(sentence):
+            result[i, j, :len(word)] = torch.LongTensor(word)
+    result = pack_padded_sequence(result, lengths, batch_first=False, enforce_sorted=False)
+    
+    mask = (result.data == 0) * -1e9
+    mask = torch.unsqueeze(mask, -1)
+    
+    return result, mask

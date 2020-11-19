@@ -14,14 +14,21 @@ class CNNEmbedding(nn.Module):
     def __init__(self, numChars, embeddingDim):
         super().__init__()
         self.embedding = nn.Embedding(numChars, embeddingDim)
+        
+        # init zero index to a large negative value
+        self.embedding.weight.data[0] = 0
+        
         self.conv1d = nn.Conv1d(embeddingDim, embeddingDim, 3, 1, 1)
     
-    def forward(self, x):
-        x = self.embedding(x)
-        x = x.permute(0, 2, 1)
-        x = self.conv1d(x)
-        val, idx = torch.max(x, 2)
-        return val
+    def forward(self, sequences, mask=None): # packed with shape (pack_len w) or p w
+        x = self.embedding(sequences.data) # p w u
+        x = self.conv1d( x.permute(0, 2, 1) ).permute(0, 2, 1) # conv doesnt change shape; p w u
+                
+        # x is still p w u we have to take max across each word
+        # big brain time for non zero maxing
+        x, _ = torch.max(x + mask, 1) # max is across each word
+        _, *args = sequences
+        return PackedSequence(x, *args)
     
 
 
