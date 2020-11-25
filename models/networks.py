@@ -144,7 +144,7 @@ class DeepTransitionRNN(nn.Module):
         return PackedSequence(outputs, batchSizes, sortedIndices, unsortedIndices)
 
 
-class GlobalContextualDeepTransition(nn.Module):
+class SequenceLabelingEncoder(nn.Module):
     def __init__(self, inputUnits, encoderUnits, decoderUnits, transitionNumber, outputUnits):
         super().__init__()
         # save config
