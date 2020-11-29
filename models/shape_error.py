@@ -1,10 +1,12 @@
 import torch
 from torch import nn
-import torch.nn.functional as F
 from models.utils import param, reverse_packed_sequence, Namespace
 from torch.nn.utils.rnn import PackedSequence, pad_packed_sequence, pack_padded_sequence
-import pytorch_lightning as pl
+import torch.nn.functional as F
 
+"""
+    Building blocks
+"""
 class CNNEmbedding(nn.Module):
     """Model that takes input of shape [n_words, n_chars] and returns char embedding of shape [n_words, embeddingDim]
        
@@ -71,24 +73,31 @@ class TransitionGRU(nn.Module):
     
 
 class LinearEnchancedGRU(nn.Module):
-    def __init__(self, input_units, hidden_units):
+    def __init__(self, input_units, candidate_units, hidden_units=None):
+        # here candidate_units is output_units of the hidden state that the model returns
+        # hidden_units is the dimension of hidden state we pass as input
         super().__init__()
+        
+        if hidden_units is None:
+            hidden_units = candidate_units
+        
         # save config
         self.input_units = input_units
+        self.candidate_units = candidate_units
         self.hidden_units = hidden_units
         
         # weights for connecting input to a gate (3 gates)
         cat_units = input_units + hidden_units
-        self.reset_gate  = param(cat_units, hidden_units)
-        self.update_gate = param(cat_units, hidden_units)
+        self.reset_gate  = param(cat_units, candidate_units)
+        self.update_gate = param(cat_units, candidate_units)
         
         # extra params for linear enhancement
-        self.linear_gate = param(cat_units, hidden_units)
-        self.linear_transform = param(input_units, hidden_units)
+        self.linear_gate = param(cat_units, candidate_units)
+        self.linear_transform = param(input_units, candidate_units)
         
         # weights to connect input to candidate activation
-        self.Cx = param(input_units, hidden_units)
-        self.Ch = param(hidden_units, hidden_units)
+        self.Cx = param(input_units, candidate_units)
+        self.Ch = param(hidden_units, candidate_units)
     
     def forward(self, x, hx=None):
         # expected format is b u
@@ -119,12 +128,12 @@ class LinearEnchancedGRU(nn.Module):
         return ht
 
 class DeepTransitionRNN(nn.Module):
-    def __init__(self, inputUnits, outputUnits, transitionNumber):
+    def __init__(self, inputUnits, candidateUnits, transitionNumber, hiddenOutputUnits=None):
         super().__init__()
 
-        self.linearGRU = LinearEnchancedGRU(inputUnits, outputUnits)
+        self.linearGRU = LinearEnchancedGRU(inputUnits, candidateUnits, hiddenOutputUnits)
 
-        tgru = [TransitionGRU(outputUnits)  for _ in range(transitionNumber)]
+        tgru = [TransitionGRU(candidateUnits)  for _ in range(transitionNumber)]
         self.transitionGRU = nn.Sequential(*tgru)
     
     def cell_forward(self, xt, ht):
@@ -145,8 +154,18 @@ class DeepTransitionRNN(nn.Module):
         return PackedSequence(outputs, batchSizes, sortedIndices, unsortedIndices)
 
 
-class SequenceLabelingEncoderDecoder(nn.Module):
-    def __init__(self, inputUnits, encoderUnits, decoderUnits, transitionNumber):
+    
+"""
+    Buildings
+"""
+class SequenceLabelingEncoder(nn.Module):
+    """
+        Bidirectional Encoder-Decoder Deep Transition RNN
+            * uses global context embeddings as input
+            * returns output of dimension time, batchsize, outputUnits in the form of a PackedSequence
+            * outputs are not softmaxed - so that they can be used for NLL loss later
+    """
+    def __init__(self, inputUnits, encoderUnits, decoderUnits, transitionNumber, outputUnits):
         super().__init__()
         # save config
         self.inputUnits = inputUnits
@@ -157,12 +176,16 @@ class SequenceLabelingEncoderDecoder(nn.Module):
         # encoder is bidirectional, but decoder is unidirectional
         self.fowardEncoder   = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
         self.backwardEncoder = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
-        self.decoder         = DeepTransitionRNN(2*encoderUnits, decoderUnits, transitionNumber)
-        self.output          = nn.Linear(decoderUnits, decoderUnits)
+        self.decoder         = DeepTransitionRNN(2*encoderUnits, decoderUnits, transitionNumber, outputUnits)
+#         self.output  = nn.Sequential(
+#             nn.Linear(decoderUnits, outputUnits),
+#             nn.Softmax(dim=-1)
+#         )
+        self.output = nn.Linear(decoderUnits, outputUnits)
         
-    def enforced_logits(self, sequence, targets):
+    def forward(self, sequence, reversedSequence):
         data, batchSizes, sortedIndices, unsortedIndices = sequence
-        reversedSequence = reverse_packed_sequence(sequence)
+
         forwardEncoded  = self.fowardEncoder(sequence)
         backwardEncoded = self.backwardEncoder(reversedSequence)
         reversedBackwardEncoded = reverse_packed_sequence(backwardEncoded)
@@ -170,20 +193,23 @@ class SequenceLabelingEncoderDecoder(nn.Module):
 
         # encoded is a tensor here and not a packed sequence
         start = 0
-        logits = []
-        prevTarget = None
+        outputs = []
+        yt = None
         for batch in batchSizes:
             xt = encoded[start:start+batch]
-            ht = self.decoder.cell_forward(xt, prevTarget)
-            logit = self.output(ht)
-            logits.append(logit)
             
-            # update prevTarget after processing current timestep
-            prevTarget = targets.data[start:start+batch]
+            # paper uses softmaxed linear output as hidden state for decoder
+            if yt is not None:
+                yt = F.softmax(yt, dim=-1)
+                
+            ht = self.decoder.cell_forward(xt, yt)
+            yt = self.output(ht)
+            outputs.append(yt)
             start = start + batch
-        logits = torch.cat(logits)
-        return logits
+        outputs = torch.cat(outputs)
 
+        return PackedSequence(outputs, batchSizes, sortedIndices, unsortedIndices)
+    
 
 """
     Glove and char embeddings to global embeddings
@@ -230,33 +256,23 @@ class GlobalContextualEncoder(nn.Module):
         wcg = PackedSequence(wcg, *args)
         return wcg
 
+    
 """
     Model from the paper
 """
-class GlobalContextualDeepTransition(pl.LightningModule):
+class GlobalContextualDeepTransition(nn.Module):
     def __init__(self, numChars, charEmbedding, numWords,
                      wordEmbedding, contextOutputUnits, contextTransitionNumber,
-                        encoderUnits, decoderUnits, transitionNumber):
+                        encoderUnits, decoderUnits, transitionNumber, numTags):
         super().__init__()
         self.contextEncoder = GlobalContextualEncoder(numChars, charEmbedding, numWords,
                                                           wordEmbedding, contextOutputUnits, contextTransitionNumber)
         self.labellerInput = wordEmbedding + charEmbedding + 2 * contextOutputUnits # units in g
-        self.sequenceLabeller = SequenceLabelingEncoderDecoder(self.labellerInput, encoderUnits, decoderUnits, transitionNumber)
-    
-    def time_series_cross_entropy(self, logits, targets):
-        loss = -targets * F.log_softmax(logits, dim=1)
-        return loss.sum(dim=1).mean()
-    
-    def training_step(self, batch, batch_idx):
-        words, chars, charMask, targets = batch
+        self.sequenceLabeller = SequenceLabelingEncoder(self.labellerInput, encoderUnits, decoderUnits, transitionNumber, numTags)
         
-        # compute the global representation and concat with word and char representations
+    def forward(self, words, chars, charMask):
         wcg = self.contextEncoder(words, chars, charMask)
         
-        # encode concaatentated input and decode logits using sequence labeller
-        logits = self.sequenceLabeller.enforced_logits(wcg, targets)
-        
-        # compute loss using averaging loss across different timesteps
-        loss = self.time_series_cross_entropy(logits.data, targets.data)
-        
-        return loss
+        print(wcg.data.shape[-1], self.labellerInput)
+        out = self.sequenceLabeller(wcg, reverse_packed_sequence(wcg))
+        return out
