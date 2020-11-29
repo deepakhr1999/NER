@@ -183,3 +183,45 @@ class SequenceLabelingEncoder(nn.Module):
         outputs = torch.cat(outputs)
 
         return PackedSequence(outputs, batchSizes, sortedIndices, unsortedIndices)
+    
+class GlobalContextualEncoder(nn.Module):
+    def __init__(self, numChars, charEmbedding, numWords, wordEmbedding, outputUnits, transitionNumber):
+        super().__init__()
+        self.cnn = CNNEmbedding(numChars, charEmbedding)
+        self.glove = nn.Embedding(numWords, wordEmbedding)
+        
+        encoderInputUnits = wordEmbedding + charEmbedding
+        self.forwardEncoder  = DeepTransitionRNN(encoderInputUnits, outputUnits, transitionNumber)
+        self.backwardEncoder = DeepTransitionRNN(encoderInputUnits, outputUnits, transitionNumber)
+        
+    def forward(self, words, chars, charMask):
+        _, *args = words
+        
+        w = self.glove(words.data)
+        c = self.cnn(chars, charMask)
+        
+        # word and char concat, pass through encoder and we get directional global context
+        wc = torch.cat([w, c.data], dim=-1)
+        forwardInput  = PackedSequence( wc, *args )
+        forwardG  = self.forwardEncoder(forwardInput)
+        
+        backwardInput = reverse_packed_sequence(forwardInput)      
+        backwardG = self.backwardEncoder(backwardInput)
+        backwardG = reverse_packed_sequence(backwardG)
+        
+        nonDirectionalG = torch.cat([forwardG.data, backwardG.data], dim=-1)
+        
+        # mean pooling is done by padding with zeros, taking timewise sum and dividing by lengths
+        nonDirectionalG = PackedSequence(nonDirectionalG, *args)
+        nonDirectionalG, lens = pad_packed_sequence(nonDirectionalG)
+        lens = torch.unsqueeze(torch.unsqueeze(lens, -1), 0)
+        nonDirectionalG_sum = nonDirectionalG.sum(dim=0, keepdim=True)
+        g = nonDirectionalG_sum / lens
+        
+        # need to broadcast g and concat with wc
+        new_shape = [nonDirectionalG.data.shape[0] // g.shape[0]] + [-1] * (len(g.shape) - 1)
+        g = pack_padded_sequence(g.expand(*new_shape), lens[0,:, 0])
+        
+        wcg = torch.cat([g.data, wc], dim=-1)
+        wcg = PackedSequence(wcg, *args)
+        return wcg
