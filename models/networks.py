@@ -193,6 +193,7 @@ class GlobalContextualEncoder(nn.Module):
         super().__init__()
         self.cnn = CNNEmbedding(numChars, charEmbedding)
         self.glove = nn.Embedding(numWords, wordEmbedding)
+        self.glove.weight.requires_grad=False
         
         encoderInputUnits = wordEmbedding + charEmbedding
         self.forwardEncoder  = DeepTransitionRNN(encoderInputUnits, outputUnits, transitionNumber)
@@ -218,13 +219,17 @@ class GlobalContextualEncoder(nn.Module):
         # mean pooling is done by padding with zeros, taking timewise sum and dividing by lengths
         nonDirectionalG = PackedSequence(nonDirectionalG, *args)
         nonDirectionalG, lens = pad_packed_sequence(nonDirectionalG)
-        lens = torch.unsqueeze(torch.unsqueeze(lens, -1), 0)
+
+        # here we see what
+        device = next(self.parameters()).device
+        lens = torch.unsqueeze(torch.unsqueeze(lens, -1), 0).to(device)
+
         nonDirectionalG_sum = nonDirectionalG.sum(dim=0, keepdim=True)
         g = nonDirectionalG_sum / lens
         
         # need to broadcast g and concat with wc
         new_shape = [nonDirectionalG.data.shape[0] // g.shape[0]] + [-1] * (len(g.shape) - 1)
-        g = pack_padded_sequence(g.expand(*new_shape), lens[0,:, 0])
+        g = pack_padded_sequence(g.expand(*new_shape), lens[0,:, 0], enforce_sorted=False)
         
         wcg = torch.cat([g.data, wc], dim=-1)
         wcg = PackedSequence(wcg, *args)
