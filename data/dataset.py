@@ -1,4 +1,4 @@
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Sampler
 import itertools
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, PackedSequence
 import torch
@@ -10,7 +10,7 @@ except:
 
 
 class NERDataset(Dataset):
-    def __init__(self, sourceName, targetName):
+    def __init__(self, sourceName, targetName, numTags):
         """Reads the source file and returns sentences and sorted unique words
         Args:
             filename(str) : name of the source file of the dataset
@@ -37,7 +37,9 @@ class NERDataset(Dataset):
         # extract unique words and tags from the document
         self.words = getWordsFrom(sentences)
         self.tags  = getWordsFrom(targets)
-        self.numTags = len(self.tags)
+        
+        # self.pack_collate function is implemented using numTags for one hot encoding
+        self.numTags = numTags
 
         # make word_dict and convert sentence to list of indices
         self.wordIdx = {word: i+2 for i, word in enumerate(self.words)}
@@ -59,6 +61,9 @@ class NERDataset(Dataset):
     def __len__(self):
         return len(self.sentences)
 
+    def getLengths(self):
+        return [len(s) for s in self.sentences]
+    
     def __getitem__(self, idx):
         return self.sentences[idx], self.chars[idx], self.targets[idx]
 
@@ -80,87 +85,60 @@ class NERDataset(Dataset):
         chars, mask = packCharsWithMask(chars)
         return words, chars, mask, targets
 
-    def getLoader(self, batch_size):
-        return DataLoader(self, batch_size=batch_size, collate_fn=self.pack_collate)
+    def getLoader(self, tokenCap=4096):
+        sampler = TokenSampler(self.getLengths(), tokenCap)
+        return DataLoader(self, batch_sampler=sampler, collate_fn=self.pack_collate)
 
+class TokenSampler(Sampler):
+    def __init__(self, lengths, tokenCap):
+        self.lengths = lengths
+        self.tokenCap = max(tokenCap, max(lengths))
+    
+    def __len__(self):
+        return len(self.lengths)
+    
+    def __iter__(self):
+        """
+            Constructs batches with indices such that
+            sum(lengths[idx] for idx in batch) is as large as possible but less than tokenCap
+        """
+        
+        # buffer stores random permutation of indices
+        buffer = torch.randperm(len(self))
+        
+        batch = []
+        runningSum = 0
+        for idx in buffer:
+            if runningSum + self.lengths[idx] > self.tokenCap:
+                yield batch
+                batch = []
+                runningSum = 0
+            
+            batch.append(idx)
+            runningSum += self.lengths[idx]
+        
+        if len(batch) != 0:
+            yield batch
 
 if __name__ == '__main__':
     sourceName = 'data/conll03/eng.train.src'
     targetName = 'data/conll03/eng.train.trg'
 
-    loader = NERDataset(sourceName, targetName).getLoader(batch_size=3)
+    data = NERDataset(sourceName, targetName, 256)
+    loader = data.getLoader(150)
     
     words, chars, mask, targets = next(iter(loader))
 
+    print("----Shapes----")
     print(words.data, chars.data, targets.data, sep='\n')
+
+    print("----Batching----")
+    loader = data.getLoader(4096)
+
+    g = []
+    for i,batch in enumerate(loader):
+        words, chars, mask, targets = batch
+        x = words.data.numel()
+        g.append(x)
         
-# class NERdata(Dataset):
-#   def __init__(self,src_path,trg_path):
-#     self.trg_path = trg_path
-#     self.src_path = src_path
-#     self.src_data=list()
-#     self.sentences = list()
-#     self.word_dict = dict()
-#     self.words = list()
-#     self.unique_words = set()
-#     self.trg_data = list()
-#     self.labels = list()
-    
-#     self._init()
-
-#   def __len__(self):
-#     return len(self.unique_words)
-  
-#   def __getitem__(self,idx):
-#     return self.word_dict[idx]
-  
-#   def _init(self):
-
-#     src_inp = open(self.src_path)
-#     trg_inp = open(self.trg_path)
-#     for i in src_inp:
-#       i = i.strip()
-#       self.src_data.append(i)
-#       if i!= '-DOCSTART-':
-#         self.sentences.append(i)
-#         for word in i.split(' '):
-#           self.unique_words.add(word)
-#     src_inp.close()
-#     for i in self.unique_words:
-#       self.words.append(i)
-#     self.words.sort()
-
-#     self.word_dict = {word:(i+2) for i,word in enumerate(self.words)}
-#     self.word_dict['PAD'] = 0
-#     self.word_dict['UNK'] = 1
-
-#     label_set = set()
-#     sent_labels = []
-#     for i,j in enumerate(trg_inp):
-#       l = []
-#       j = j.strip()
-#       self.trg_data.append(j)
-#       if self.src_data[i] != '-DOCSTART-':
-#         for k in j.split(' '):  
-#           l.append(k)
-#           label_set.add(k)
-#         sent_labels.append(l)
-#     trg_inp.close()
-
-#     all_labels = []
-#     for i in label_set:
-#       all_labels.append(i)
-#     all_labels.sort()
-
-#     print(all_labels)
-#     # label_len = len(all_labels)
-    
-#     for word_lab in sent_labels:
-#       l1 = []
-#       for i in word_lab:
-#         temp = np.zeros(len(all_labels))
-#         temp[all_labels.index(i)] = 1
-#         l1.append(temp)
-
-#       self.labels.append(l1)    
-
+    print(sum(g), sum(data.getLengths()))
