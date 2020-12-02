@@ -40,31 +40,41 @@ class TransitionGRU(nn.Module):
         self.hidden_units = hidden_units
         
         self.reset_gate     = param(hidden_units, hidden_units)
+        self.reset_norm     = nn.LayerNorm(hidden_units)
+
         self.update_gate    = param(hidden_units, hidden_units)
+        self.update_norm    = nn.LayerNorm(hidden_units)
+
         self.candidate_gate = param(hidden_units, hidden_units)
+        self.candidate_drop = nn.Dropout(0.3)
         
     
     def forward(self, ht):
         """
         Special GRU that uses on hidden state as input
         Expected format is b u 
-            r = sigma(Wr * h)
-            z = sigma(Wz * h)
+            r = sigma(layernorm(Wr * h))
+            z = sigma(layernorm(Wz * h))
+            
             n = tanh (r .* (Wn * h))
+            n = dropout(n)
 
             y = (1 - z) * h + z * n
         """
         # reset gate xt -> (b u) (u u) -> (b u)
         r = torch.mm(ht, self.reset_gate)
+        r = self.reset_norm(r)
         r = torch.sigmoid(r)
         
         # update gate
         z = torch.mm(ht, self.update_gate)
+        z = self.update_norm(z)
         z = torch.sigmoid(z)
         
         # candidate state
         n = r * torch.mm(ht, self.candidate_gate)
         n = torch.tanh(n)
+        n = self.candidate_drop(n)
         
         out = (1-z) * n  +  z * ht
         return out
@@ -80,16 +90,21 @@ class LinearEnchancedGRU(nn.Module):
         # weights for connecting input to a gate (3 gates)
         cat_units = input_units + hidden_units
         self.reset_gate  = param(cat_units, hidden_units)
+        self.reset_norm  = nn.LayerNorm(hidden_units)
+
         self.update_gate = param(cat_units, hidden_units)
-        
+        self.update_norm = nn.LayerNorm(hidden_units)
+
         # extra params for linear enhancement
         self.linear_gate = param(cat_units, hidden_units)
         self.linear_transform = param(input_units, hidden_units)
-        
+        self.linear_norm = nn.LayerNorm(hidden_units)
+
         # weights to connect input to candidate activation
         self.Cx = param(input_units, hidden_units)
         self.Ch = param(hidden_units, hidden_units)
-    
+        self.candidate_drop = nn.Dropout(0.3)
+
     def forward(self, x, hx=None):
         # expected format is b u
         if hx is None:
@@ -100,20 +115,23 @@ class LinearEnchancedGRU(nn.Module):
         
         # reset gate
         r = torch.mm(concat_out, self.reset_gate)
+        r = self.reset_norm(r)
         r = torch.sigmoid(r)
         
         # update gate
         z = torch.mm(concat_out, self.update_gate)
+        z = self.update_norm(z)
         z = torch.sigmoid(z)
         
         # linear enhanced gate
         l = torch.mm(concat_out, self.linear_gate)
+        l = self.linear_norm(l)
         l = torch.sigmoid(l)
         
         # candidate state
-        n =  torch.mm(x, self.Cx) + r * torch.mm(hx, self.Ch)
+        n = torch.mm(x, self.Cx) + r * torch.mm(hx, self.Ch)
         n = torch.tanh(n) + l * torch.mm(x, self.linear_transform)
-        
+        n = self.candidate_drop(n)
         # linear combination
         ht = (1-z) * hx  +  z * n
         return ht
