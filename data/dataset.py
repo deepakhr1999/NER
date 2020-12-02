@@ -10,7 +10,7 @@ except:
 
 
 class NERDataset(Dataset):
-    def __init__(self, sourceName, targetName, numTags):
+    def __init__(self, sourceName, targetName):
         """Reads the source file and returns sentences and sorted unique words
         Args:
             filename(str) : name of the source file of the dataset
@@ -39,7 +39,7 @@ class NERDataset(Dataset):
         self.tags  = getWordsFrom(targets)
         
         # self.pack_collate function is implemented using numTags for one hot encoding
-        self.numTags = numTags
+        self.numTags = len(self.tags)
 
         # make word_dict and convert sentence to list of indices
         self.wordIdx = {word: i+2 for i, word in enumerate(self.words)}
@@ -76,11 +76,6 @@ class NERDataset(Dataset):
 
         targets = pad_sequence(targets, batch_first=False)
         targets = pack_padded_sequence(targets, lens, enforce_sorted=False)
-        b = targets.data.size(0)
-        oneHot = torch.zeros(b, self.numTags)
-        oneHot[torch.arange(b), targets.data] =  1.
-        _, *args = targets
-        targets = PackedSequence(oneHot, *args)
 
         chars, mask = packCharsWithMask(chars)
         return words, chars, mask, targets
@@ -124,7 +119,7 @@ if __name__ == '__main__':
     sourceName = 'data/conll03/eng.train.src'
     targetName = 'data/conll03/eng.train.trg'
 
-    data = NERDataset(sourceName, targetName, 256)
+    data = NERDataset(sourceName, targetName)
     loader = data.getLoader(150)
     
     words, chars, mask, targets = next(iter(loader))

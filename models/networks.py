@@ -45,7 +45,7 @@ class TransitionGRU(nn.Module):
         self.update_gate    = param(hidden_units, hidden_units)
         self.update_norm    = nn.LayerNorm(hidden_units)
 
-        self.candidate_gate = param(hidden_units, hidden_units)
+        self.candidate_gate = nn.Linear(hidden_units, hidden_units)
         self.candidate_drop = nn.Dropout(0.3)
         
     
@@ -56,7 +56,7 @@ class TransitionGRU(nn.Module):
             r = sigma(layernorm(Wr * h))
             z = sigma(layernorm(Wz * h))
             
-            n = tanh (r .* (Wn * h))
+            n = tanh (r .* (Wn * h + bn))
             n = dropout(n)
 
             y = (1 - z) * h + z * n
@@ -72,7 +72,7 @@ class TransitionGRU(nn.Module):
         z = torch.sigmoid(z)
         
         # candidate state
-        n = r * torch.mm(ht, self.candidate_gate)
+        n = r * self.candidate_gate(ht)
         n = torch.tanh(n)
         n = self.candidate_drop(n)
         
@@ -102,7 +102,9 @@ class LinearEnchancedGRU(nn.Module):
 
         # weights to connect input to candidate activation
         self.Cx = param(input_units, hidden_units)
-        self.Ch = param(hidden_units, hidden_units)
+        
+        # bias true for linear_state in GCDT paper
+        self.Ch = nn.Linear(hidden_units, hidden_units) 
         self.candidate_drop = nn.Dropout(0.3)
 
     def forward(self, x, hx=None):
@@ -129,7 +131,7 @@ class LinearEnchancedGRU(nn.Module):
         l = torch.sigmoid(l)
         
         # candidate state
-        n = torch.mm(x, self.Cx) + r * torch.mm(hx, self.Ch)
+        n = torch.mm(x, self.Cx) + r * self.Ch(hx)
         n = torch.tanh(n) + l * torch.mm(x, self.linear_transform)
         n = self.candidate_drop(n)
         # linear combination
@@ -164,7 +166,7 @@ class DeepTransitionRNN(nn.Module):
 
 
 class SequenceLabelingEncoderDecoder(nn.Module):
-    def __init__(self, inputUnits, encoderUnits, decoderUnits, transitionNumber):
+    def __init__(self, inputUnits, encoderUnits, decoderUnits, transitionNumber, numTags):
         super().__init__()
         # save config
         self.inputUnits = inputUnits
@@ -173,10 +175,19 @@ class SequenceLabelingEncoderDecoder(nn.Module):
         self.transitionNumber = transitionNumber
         
         # encoder is bidirectional, but decoder is unidirectional
+        self.targetEmbedding = nn.Sequential(
+                                    nn.Embedding(numTags, decoderUnits),
+                                    nn.Dropout(0.5)
+                                )
         self.fowardEncoder   = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
         self.backwardEncoder = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
         self.decoder         = DeepTransitionRNN(2*encoderUnits, decoderUnits, transitionNumber)
-        self.output          = nn.Linear(decoderUnits, decoderUnits)
+        self.output          = nn.Sequential(
+                                    nn.Linear(decoderUnits, decoderUnits),
+                                    nn.Tanh(),
+                                    nn.Dropout(0.5),
+                                    nn.Linear(decoderUnits, numTags)
+                                )
         
     def enforced_logits(self, sequence, targets):
         data, batchSizes, sortedIndices, unsortedIndices = sequence
@@ -190,6 +201,7 @@ class SequenceLabelingEncoderDecoder(nn.Module):
         start = 0
         logits = []
         prevTarget = None
+        targetVectors = self.targetEmbedding(targets.data)
         for batch in batchSizes:
             xt = encoded[start:start+batch]
             ht = self.decoder.cell_forward(xt, prevTarget)
@@ -197,7 +209,7 @@ class SequenceLabelingEncoderDecoder(nn.Module):
             logits.append(logit)
             
             # update prevTarget after processing current timestep
-            prevTarget = targets.data[start:start+batch]
+            prevTarget = targetVectors[start:start+batch]
             start = start + batch
         logits = torch.cat(logits)
         return logits
@@ -209,8 +221,12 @@ class SequenceLabelingEncoderDecoder(nn.Module):
 class GlobalContextualEncoder(nn.Module):
     def __init__(self, numChars, charEmbedding, numWords, wordEmbedding, outputUnits, transitionNumber):
         super().__init__()
-        self.cnn = CNNEmbedding(numChars, charEmbedding)
+        self.cnn   = CNNEmbedding(numChars, charEmbedding)
+        self.cnnDrop = nn.Dropout(0.5)
+        
         self.glove = nn.Embedding(numWords, wordEmbedding)
+        self.gloveDrop = nn.Dropout(0.5)
+                    
         self.glove.weight.requires_grad=False
         
         encoderInputUnits = wordEmbedding + charEmbedding
@@ -221,10 +237,13 @@ class GlobalContextualEncoder(nn.Module):
         _, *args = words
         
         w = self.glove(words.data)
+        w = self.gloveDrop(w)
+
         c = self.cnn(chars, charMask)
+        c = self.cnnDrop(c.data)
         
         # word and char concat, pass through encoder and we get directional global context
-        wc = torch.cat([w, c.data], dim=-1)
+        wc = torch.cat([w, c], dim=-1)
         forwardInput  = PackedSequence( wc, *args )
         forwardG  = self.forwardEncoder(forwardInput)
         
@@ -259,17 +278,41 @@ class GlobalContextualEncoder(nn.Module):
 class GlobalContextualDeepTransition(pl.LightningModule):
     def __init__(self, numChars, charEmbedding, numWords,
                      wordEmbedding, contextOutputUnits, contextTransitionNumber,
-                        encoderUnits, decoderUnits, transitionNumber):
+                        encoderUnits, decoderUnits, transitionNumber, numTags):
         super().__init__()
+        self.numTags = numTags
+        self.isCuda = False
         self.contextEncoder = GlobalContextualEncoder(numChars, charEmbedding, numWords,
                                                           wordEmbedding, contextOutputUnits, contextTransitionNumber)
         self.labellerInput = wordEmbedding + charEmbedding + 2 * contextOutputUnits # units in g
-        self.sequenceLabeller = SequenceLabelingEncoderDecoder(self.labellerInput, encoderUnits, decoderUnits, transitionNumber)
+        self.sequenceLabeller = SequenceLabelingEncoderDecoder(self.labellerInput, encoderUnits, decoderUnits, transitionNumber, numTags)
     
+    def putOnCuda(self):
+        self.isCuda = True
+        return self.cuda()
+
+    def putOnCpu(self):
+        self.isCuda = False
+        return self.cpu()
+
     def time_series_cross_entropy(self, logits, targets):
-        loss = -targets * F.log_softmax(logits, dim=1)
+        # convert targets to onehot and smooth the labels
+        alpha = 0.1
+        p = 1. - alpha
+        q = alpha / (self.numTags - 1)
+
+        # convert targets to one hot using p and q
+        b = targets.size(0)
+        oneHot = torch.ones(b, self.numTags) * q
+        oneHot[torch.arange(b), targets] =  p
+        if self.isCuda:
+            oneHot = oneHot.cuda()
+        loss = - oneHot * F.log_softmax(logits, dim=1)
         return loss.sum(dim=1).mean()
     
+    def f1_metric(self, targets, logits):
+        preds = logits.argmax(dim=1)
+        
     def training_step(self, batch, batch_idx):
         words, chars, charMask, targets = batch
         
