@@ -95,7 +95,7 @@ class TokenSampler(Sampler):
         self.tokenCap = max(tokenCap, max(lengths))
     
     def __len__(self):
-        return len(self.lengths)
+        return sum(self.lengths) // self.tokenCap + 1
     
     def __iter__(self):
         """
@@ -104,11 +104,11 @@ class TokenSampler(Sampler):
         """
         
         # buffer stores random permutation of indices
-        buffer = torch.randperm(len(self))
+        self.buffer = torch.randperm(len(self.lengths))
         
         batch = []
         runningSum = 0
-        for idx in buffer:
+        for idx in self.buffer:
             if runningSum + self.lengths[idx] > self.tokenCap:
                 yield batch
                 batch = []
