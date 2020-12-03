@@ -212,13 +212,14 @@ class SequenceLabelingEncoderDecoder(nn.Module):
             prevTarget = targetVectors[start:start+batch]
             start = start + batch
         logits = torch.cat(logits)
+        logits = PackedSequence(logits, batchSizes, sortedIndices, unsortedIndices)
         return logits
 
 
 """
     Glove and char embeddings to global embeddings
 """
-class GlobalContextualEncoder(nn.Module):
+class GlobalContextualEncoder(pl.LightningModule):
     def __init__(self, numChars, charEmbedding, numWords, wordEmbedding, outputUnits, transitionNumber):
         super().__init__()
         self.cnn   = CNNEmbedding(numChars, charEmbedding)
@@ -259,8 +260,8 @@ class GlobalContextualEncoder(nn.Module):
         nonDirectionalG, lens = pad_packed_sequence(nonDirectionalG)
 
         # here we see what
-        device = next(self.parameters()).device
-        lens = torch.unsqueeze(torch.unsqueeze(lens, -1), 0).to(device)
+        # device = next(self.parameters()).device
+        lens = torch.unsqueeze(torch.unsqueeze(lens, -1), 0).to(self.device)
 
         nonDirectionalG_sum = nonDirectionalG.sum(dim=0, keepdim=True)
         g = nonDirectionalG_sum / lens
@@ -282,19 +283,10 @@ class GlobalContextualDeepTransition(pl.LightningModule):
                         encoderUnits, decoderUnits, transitionNumber, numTags):
         super().__init__()
         self.numTags = numTags
-        self.isCuda = True
         self.contextEncoder = GlobalContextualEncoder(numChars, charEmbedding, numWords,
                                                           wordEmbedding, contextOutputUnits, contextTransitionNumber)
         self.labellerInput = wordEmbedding + charEmbedding + 2 * contextOutputUnits # units in g
         self.sequenceLabeller = SequenceLabelingEncoderDecoder(self.labellerInput, encoderUnits, decoderUnits, transitionNumber, numTags)
-    
-    def putOnCuda(self):
-        self.isCuda = True
-        return self.cuda()
-
-    def putOnCpu(self):
-        self.isCuda = False
-        return self.cpu()
 
     def init_weights(self, gloveEmbedding):
         self.apply(recursiveXavier)
@@ -310,8 +302,7 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         b = targets.size(0)
         oneHot = torch.ones(b, self.numTags) * q
         oneHot[torch.arange(b), targets] =  p
-        if self.isCuda:
-            oneHot = oneHot.cuda()
+        oneHot = oneHot.to(self.device)
         loss = - oneHot * F.log_softmax(logits, dim=1)
         return loss.sum(dim=1).mean()
     
