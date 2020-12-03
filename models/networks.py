@@ -282,7 +282,7 @@ class GlobalContextualDeepTransition(pl.LightningModule):
                         encoderUnits, decoderUnits, transitionNumber, numTags):
         super().__init__()
         self.numTags = numTags
-        self.isCuda = False
+        self.isCuda = True
         self.contextEncoder = GlobalContextualEncoder(numChars, charEmbedding, numWords,
                                                           wordEmbedding, contextOutputUnits, contextTransitionNumber)
         self.labellerInput = wordEmbedding + charEmbedding + 2 * contextOutputUnits # units in g
@@ -299,7 +299,7 @@ class GlobalContextualDeepTransition(pl.LightningModule):
     def init_weights(self, gloveEmbedding):
         self.apply(recursiveXavier)
         self.contextEncoder.glove.weight = torch.nn.Parameter(gloveEmbedding, requires_grad=False)
-        
+
     def time_series_cross_entropy(self, logits, targets):
         # convert targets to onehot and smooth the labels
         alpha = 0.1
@@ -331,3 +331,6 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         loss = self.time_series_cross_entropy(logits.data, targets.data)
         
         return loss
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=8e-3)
