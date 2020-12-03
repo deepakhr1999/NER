@@ -1,5 +1,6 @@
 import torch
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, pad_sequence
+from torch.nn import init
 
 class Namespace:
     """
@@ -70,3 +71,16 @@ def packCharsWithMask(sequences):
     mask = torch.unsqueeze(mask, -1)
     
     return result, mask
+
+def recursiveXavier(m):
+    classname = m.__class__.__name__
+    if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+        # xavier init for conv and linear layers
+        init.xavier_normal_(m.weight.data)
+        if hasattr(m, 'bias') and m.bias is not None:
+            init.constant_(m.bias.data, 0.0)
+    elif classname.find('LayerNorm') != -1:
+        # For layer norm, we need to init scale = 1 and offset = 0
+        # use only normal
+        init.normal_(m.weight.data, 1.0)
+        init.constant_(m.bias.data, 0.0)

@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from models.utils import param, reverse_packed_sequence, Namespace
+from models.utils import param, reverse_packed_sequence, Namespace, recursiveXavier
 from torch.nn.utils.rnn import PackedSequence, pad_packed_sequence, pack_padded_sequence
 import pytorch_lightning as pl
 
@@ -225,6 +225,7 @@ class GlobalContextualEncoder(nn.Module):
         self.cnnDrop = nn.Dropout(0.5)
         
         self.glove = nn.Embedding(numWords, wordEmbedding)
+        self.gloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
         self.gloveDrop = nn.Dropout(0.5)
                     
         self.glove.weight.requires_grad=False
@@ -236,7 +237,7 @@ class GlobalContextualEncoder(nn.Module):
     def forward(self, words, chars, charMask):
         _, *args = words
         
-        w = self.glove(words.data)
+        w = self.glove(words.data) + self.gloveBias
         w = self.gloveDrop(w)
 
         c = self.cnn(chars, charMask)
@@ -295,6 +296,10 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         self.isCuda = False
         return self.cpu()
 
+    def init_weights(self, gloveEmbedding):
+        self.apply(recursiveXavier)
+        self.contextEncoder.glove.weight = torch.nn.Parameter(gloveEmbedding, requires_grad=False)
+        
     def time_series_cross_entropy(self, logits, targets):
         # convert targets to onehot and smooth the labels
         alpha = 0.1
