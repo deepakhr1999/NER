@@ -35,3 +35,38 @@ def getWordsFrom(sentences):
     words = list(set(concatenated))
     words.sort()
     return words
+
+
+def getGloveFromTrimmed(gloveFile, symbFile):
+    """
+    Makes dict using gloveFile and symbFile
+    sorts the vocab and returns the torch weights and words
+    """
+    gloveDict = {}
+    
+    # read from gloveFile
+    with open(gloveFile, 'r') as file:
+        for line in file:
+            word, *vector = line.strip().split()
+            gloveDict[word] = vector
+
+    # sort the glove words
+    words = list(gloveDict.keys())
+    words.sort()
+
+    # do the same with symbfile
+    with open(symbFile, 'r') as file:
+        for line in file:
+            word, *vector = line.strip().split()
+            gloveDict[word] = vector
+    
+    words = '<pad> <eos> <unk>'.split() + words
+
+    # get torch tensor
+    weights = torch.Tensor([
+        list(map(float, gloveDict[word]))
+        for word in words
+    ])
+    
+    # return weights and words
+    return weights, words

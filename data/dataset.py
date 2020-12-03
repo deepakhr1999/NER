@@ -3,14 +3,11 @@ import itertools
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, PackedSequence
 import torch
 import string
-try:
-    from utils import packCharsWithMask, getWordsFrom
-except:
-    from data.utils import packCharsWithMask, getWordsFrom 
+from data.utils import packCharsWithMask, getWordsFrom, getGloveFromTrimmed 
 
 
 class NERDataset(Dataset):
-    def __init__(self, sourceName, targetName):
+    def __init__(self, sourceName, targetName, gloveFile, symbFile):
         """Reads the source file and returns sentences and sorted unique words
         Args:
             filename(str) : name of the source file of the dataset
@@ -35,18 +32,22 @@ class NERDataset(Dataset):
         ]
 
         # extract unique words and tags from the document
-        self.words = getWordsFrom(sentences)
         self.tags  = getWordsFrom(targets)
-        
+        self.embeddingWeights, self.words = getGloveFromTrimmed(gloveFile, symbFile)
+
         # self.pack_collate function is implemented using numTags for one hot encoding
         self.numTags = len(self.tags)
 
         # make word_dict and convert sentence to list of indices
-        self.wordIdx = {word: i+2 for i, word in enumerate(self.words)}
-        self.wordIdx['PAD'] = 0
-        self.wordIdx['UNK'] = 1
+        self.wordIdx = {word: i for i, word in enumerate(self.words)}
+
         self.sentences = [
-            torch.LongTensor([self.wordIdx[word] for word in sentence.split()])
+            torch.LongTensor([
+                self.wordIdx[word]
+                if word in self.wordIdx
+                else self.wordIdx ['<unk>']
+                for word in sentence.split()
+            ])
             for sentence in sentences
         ]
 
