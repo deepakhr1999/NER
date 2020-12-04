@@ -259,16 +259,17 @@ class GlobalContextualEncoder(pl.LightningModule):
         nonDirectionalG = PackedSequence(nonDirectionalG, *args)
         nonDirectionalG, lens = pad_packed_sequence(nonDirectionalG)
 
-        # here we see what
-        # device = next(self.parameters()).device
-        lens = torch.unsqueeze(torch.unsqueeze(lens, -1), 0).to(self.device)
 
+        # expand shape to allow broadcast division
+        denominator = torch.unsqueeze(torch.unsqueeze(lens, -1), 0).to(self.device)
+
+        # sum and divide to get mean
         nonDirectionalG_sum = nonDirectionalG.sum(dim=0, keepdim=True)
-        g = nonDirectionalG_sum / lens
+        g = nonDirectionalG_sum / denominator
         
         # need to broadcast g and concat with wc
         new_shape = [nonDirectionalG.data.shape[0] // g.shape[0]] + [-1] * (len(g.shape) - 1)
-        g = pack_padded_sequence(g.expand(*new_shape), lens[0,:, 0], enforce_sorted=False)
+        g = pack_padded_sequence(g.expand(*new_shape), lens, enforce_sorted=False)
         
         wcg = torch.cat([g.data, wc], dim=-1)
         wcg = PackedSequence(wcg, *args)
