@@ -9,17 +9,38 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/mdbootstrap/4.19.1/css/mdb.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     <title>BTech Project</title>
+    <script>
+        async function bring(arg){
+            url = `http://localhost:5000/api/${arg}`
+            return new Promise((resolve, reject)=>{
+                var http = new XMLHttpRequest();
+                http.open("GET", url, true);
+                // http.setRequestHeader('Content-type', 'application/json');
+
+                http.onreadystatechange = function() {
+                    try{
+                        if(http.readyState == 4 && http.status == 200) 
+                            resolve(http.responseText)            
+                    }catch(err){
+                        reject(err)
+                    }
+                }
+                http.send()
+            })
+        }
+    </script>
     <style>
         body{
             background-image: url({{ url_for('static', filename='background.jpg') }});
             background-size: cover;
         }
         #main{
-            display: flex;
+            /* display: flex;
             flex-direction: column;
-            height: 90vh;
             justify-content: center;
-            align-items: center;
+            align-items: center; */
+            margin-top: 17vh;
+            height: 90vh;
         }
         .wordBox{
             background-color: #3e2723;
@@ -58,17 +79,21 @@
     </div>
     <script>
         sentence = document.getElementById('sentence')
-        sentence.value = "Deepak and Arun Purohit are from Indian Institute of Technology, Dharwad"
+        sentence.value = "Deepak and Arun are the authors of this project"
         tags = 'B-LOC B-MISC B-ORG B-PER E-LOC E-MISC E-ORG E-PER I-LOC I-MISC I-ORG I-PER O S-LOC S-MISC S-ORG S-PER'.split(' ')
         const inference = () => {
             preds = document.getElementById('prediction')
             preds.innerHTML = ''
-            sentence.value.split(' ')
-            .forEach((word, i) => {
-                div = document.createElement('div')
-                div.classList.add('wordBox')
-                div.innerHTML = word + '<br>tag'
-                preds.appendChild(div)
+            bring(sentence.value)
+            .then(text=>{
+                text = text.split(' ')
+                sentence.value.split(' ')
+                .forEach((word, i) => {
+                    div = document.createElement('div')
+                    div.classList.add('wordBox')
+                    div.innerHTML = word + '<br>' + text[i]
+                    preds.appendChild(div)
+                })
             })
         }
         inference()
