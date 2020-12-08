@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.8.2/css/all.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/mdbootstrap/4.19.1/css/mdb.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
+    <title>BTech Project</title>
+    <style>
+        body{
+            background-image: url({{ url_for('static', filename='background.jpg') }});
+            background-size: cover;
+        }
+        #main{
+            display: flex;
+            flex-direction: column;
+            height: 90vh;
+            justify-content: center;
+            align-items: center;
+        }
+        .wordBox{
+            background-color: #3e2723;
+            color: white;
+            padding: 1rem;
+            margin-left: 1.5rem;
+            margin-right: 1.5rem;
+            min-width: 5em;
+            text-align: center;
+        }
+        #prediction{
+            display: flex;
+            flex-wrap: wrap;
+            margin: initial auto;
+            justify-content: center;
+            margin-top: 3em;
+        }
+    </style>
+</head>
+<body class="animate__animated animate__fadeIn animate__slow">
+    <div id="main">
+        <div class="my-5 text-center">
+            <div class="display-4">Named Entity Recognition</div>
+            <div class="subtitle">Global Deep Transition Recurrent Neural Networks</div>
+        </div>
+
+        <div class="mx-auto" style="width: 35em; padding: .5em 1.5em;">
+            <div class="md-form form-lg text-center">
+                <input type="text" id="sentence" class="form-control form-control-lg">
+                <label for="sentence">Enter sentence</label>
+                <button class="btn btn-primary" onclick="inference()">Predict</button>
+            </div>
+        </div>
+
+        <div id='prediction'></div>
+    </div>
+    <script>
+        sentence = document.getElementById('sentence')
+        sentence.value = "Deepak and Arun Purohit have authored this project"
+        const inference = () => {
+            preds = document.getElementById('prediction')
+            preds.innerHTML = ''
+            sentence.value.split(' ')
+            .forEach((word, i) => {
+                div = document.createElement('div')
+                div.classList.add('wordBox')
+                div.innerHTML = word + '<br>tag'
+                preds.appendChild(div)
+            })
+        }
+        inference()
+    </script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.4/umd/popper.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.0/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/mdbootstrap/4.19.1/js/mdb.min.js"></script>
+</body>
+</html>
