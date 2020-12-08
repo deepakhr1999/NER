@@ -58,6 +58,22 @@ class NERDataset(Dataset):
             for line in targets
         ]
 
+    def encodeSentence(self, sentence):
+        # returns an example trainable in the dataset
+        words = torch.LongTensor([
+            self.wordIdx[word]
+            if word in self.wordIdx
+            else self.wordIdx ['<unk>']
+            for word in sentence.split()
+        ])
+
+        chars = [
+            [self.charIdx[c] for c in word]
+            for word in sentence.split()
+        ]
+
+        batch = [[words, chars]]
+        return self.pack_collate(batch)
 
     def __len__(self):
         return len(self.sentences)
@@ -69,16 +85,23 @@ class NERDataset(Dataset):
         return self.sentences[idx], self.chars[idx], self.targets[idx]
 
     def pack_collate(self, batch):
-        (words, chars, targets) = zip(*batch)
+        isTargets = len(batch[0])==3
+        if isTargets:
+            (words, chars, targets) = zip(*batch)
+        else:
+            (words, chars) = zip(*batch)
+
         lens = [len(x) for x in words]
 
         words = pad_sequence(words)
         words = pack_padded_sequence(words, lens, enforce_sorted=False)
 
+        chars, mask = packCharsWithMask(chars)
+        if not isTargets:
+            return words, chars, mask
+
         targets = pad_sequence(targets, batch_first=False)
         targets = pack_padded_sequence(targets, lens, enforce_sorted=False)
-
-        chars, mask = packCharsWithMask(chars)
         return words, chars, mask, targets
 
     def getLoader(self, tokenCap=4096):

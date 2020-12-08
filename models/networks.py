@@ -188,31 +188,38 @@ class SequenceLabelingEncoderDecoder(nn.Module):
                                     nn.Dropout(0.5),
                                     nn.Linear(decoderUnits, numTags)
                                 )
-        
-    def enforced_logits(self, sequence, targets):
-        data, batchSizes, sortedIndices, unsortedIndices = sequence
+    
+    def encode(self, sequence):
         reversedSequence = reverse_packed_sequence(sequence)
         forwardEncoded  = self.fowardEncoder(sequence)
         backwardEncoded = self.backwardEncoder(reversedSequence)
         reversedBackwardEncoded = reverse_packed_sequence(backwardEncoded)
         encoded = torch.cat([forwardEncoded.data, reversedBackwardEncoded.data], dim=-1)
+        return encoded
+    
+    def decode_once(self, sequence, prevTarget):
+        ht = self.decoder.cell_forward(sequence, prevTarget)
+        logit = self.output(ht)
+        return logit
+
+    def enforced_logits(self, sequence:PackedSequence, targets:PackedSequence):
+        encoded = self.encode(sequence)
 
         # encoded is a tensor here and not a packed sequence
         start = 0
         logits = []
         prevTarget = None
         targetVectors = self.targetEmbedding(targets.data)
-        for batch in batchSizes:
-            xt = encoded[start:start+batch]
-            ht = self.decoder.cell_forward(xt, prevTarget)
-            logit = self.output(ht)
-            logits.append(logit)
+        for batch in sequence.batch_sizes:
+            logit = self.decode_once(encoded[start:start+batch], prevTarget)
             
             # update prevTarget after processing current timestep
+            logits.append(logit)
             prevTarget = targetVectors[start:start+batch]
             start = start + batch
         logits = torch.cat(logits)
-        logits = PackedSequence(logits, batchSizes, sortedIndices, unsortedIndices)
+
+        logits = PackedSequence(logits, *sequence[1:])
         return logits
 
 
@@ -309,7 +316,30 @@ class GlobalContextualDeepTransition(pl.LightningModule):
     
     def f1_metric(self, targets, logits):
         preds = logits.argmax(dim=1)
-        
+    
+    def inferOneStep(self, words, chars, charMask, prevTarget, refresh=False):
+        if refresh:
+            sequence = self.contextEncoder(words, chars, charMask)
+            self.encodedStore = self.sequenceLabeller.encode(sequence)
+        if prevTarget is not None:
+            prevTarget = self.sequenceLabeller.targetEmbedding(prevTarget)
+        nextLogits = self.sequenceLabeller.decode_once(self.encodedStore, prevTarget)
+        return nextLogits
+    
+    def testForward(self, batch):
+        words, chars, charMask = batch
+        start = 0
+        prevTarget = None
+        decoded = []
+        for b in words.batch_sizes:
+            refresh = start == 0
+            logits = self.inferOneStep(words, chars, charMask, prevTarget, refresh)
+            prevTarget = logits.argmax(axis=1)
+            decoded.append(prevTarget)
+            start += b
+        decoded = torch.cat(decoded)
+        return PackedSequence(decoded, *words[1:])
+
     def training_step(self, batch, batch_idx):
         words, chars, charMask, targets = batch
         
