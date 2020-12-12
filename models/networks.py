@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from models.utils import param, reverse_packed_sequence, Namespace, recursiveXavier
+from models.utils import param, reverse_packed_sequence, Namespace, recursiveXavier, addTimeSignal, getSignal
 from torch.nn.utils.rnn import PackedSequence, pad_packed_sequence, pack_padded_sequence
 import pytorch_lightning as pl
 
@@ -236,6 +236,9 @@ class SequenceLabelingEncoderDecoder(pl.LightningModule):
         logits = []
         prevTarget = torch.zeros(sequence.batch_sizes[0].item(), self.decoderUnits).to(self.device)
         targetVectors = self.targetEmbedding(targets.data)
+        targetVectors = PackedSequence(targetVectors, *sequence[1:])
+        targetVectors = addTimeSignal(targetVectors, self.device).data
+
         hiddenState = self.get_decoder_initial_state(encoded, *sequence[1:])
         for batch in sequence.batch_sizes:
             hiddenState, logit = self.decode_once(
@@ -284,6 +287,10 @@ class GlobalContextualEncoder(pl.LightningModule):
         # word and char concat, pass through encoder and we get directional global context
         wc = torch.cat([w, c], dim=-1)
         forwardInput  = PackedSequence( wc, *args )
+
+        # add time signal
+        forwardInput = addTimeSignal(forwardInput, self.device)
+
         forwardG  = self.forwardEncoder(forwardInput)
         
         backwardInput = reverse_packed_sequence(forwardInput)      
@@ -347,15 +354,15 @@ class GlobalContextualDeepTransition(pl.LightningModule):
     # def f1_metric(self, targets, logits):
     #     preds = logits.argmax(dim=1)
     
-    def inferOneStep(self, words, chars, charMask, prevTarget, refresh=False):
-        if refresh:
+    # def inferOneStep(self, words, chars, charMask, prevTarget, refresh=False):
+    #     if refresh:
             
-            self.store = Namespace(encoded=encoded, hiddenState=hiddenState)
+    #         self.store = Namespace(encoded=encoded, hiddenState=hiddenState)
 
-        if prevTarget is not None:
-            prevTarget = self.sequenceLabeller.targetEmbedding(prevTarget)
-        nextLogits = self.sequenceLabeller.decode_once(self.encodedStore, prevTarget)
-        return nextLogits
+    #     if prevTarget is not None:
+    #         prevTarget = self.sequenceLabeller.targetEmbedding(prevTarget)
+    #     nextLogits = self.sequenceLabeller.decode_once(self.encodedStore, prevTarget)
+    #     return nextLogits
     
     def testForward(self, batch):
         # encode everything and init vars for decoder
@@ -370,12 +377,14 @@ class GlobalContextualDeepTransition(pl.LightningModule):
                     ).to(self.device)
         start = 0
         preds = []
-        for b in words.batch_sizes:
+        for timeBias, b in enumerate(words.batch_sizes):
             # refresh = start == 0
             # logits = self.inferOneStep(words, chars, charMask, prevTarget, refresh)
+            u = prevTarget.shape[1]
+            prevTarget = prevTarget[:b] + getSignal(1, u, timeBias, self.device)
             hiddenState, logits = self.sequenceLabeller.decode_once(
                 encoded[start:start+b],
-                prevTarget[:b],
+                prevTarget,
                 hiddenState
             )
             

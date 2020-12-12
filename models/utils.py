@@ -1,6 +1,7 @@
 import torch
-from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, pad_sequence
+from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, pad_sequence, PackedSequence
 from torch.nn import init
+import math
 
 class Namespace:
     """
@@ -46,6 +47,27 @@ def sample_sequence(input_units, lengths):
     y = pack_padded_sequence(pad_sequence(y), lengths, enforce_sorted=False)
     
     return x, y
+
+def getSignal(t, u, timeBias, device):
+    n = u//2
+    logTimeScaleInc = math.log(1e4)/ (n - 1)
+    positions = torch.arange(t, dtype=torch.float, device=device) + timeBias
+    invTimeScale = torch.exp(torch.arange(n, dtype=torch.float, device=device) * -logTimeScaleInc)
+    scaledTime = torch.unsqueeze(positions, 1) * torch.unsqueeze(invTimeScale, 0) # shape (t, u/2)
+    signal = torch.cat([torch.sin(scaledTime), torch.cos(scaledTime)], axis=1) # shape (t, u)
+    return signal
+
+def addTimeSignal(sequence:PackedSequence, device, timeBias:float=.0)->PackedSequence:
+    """
+        Takes in a PackedSequence, adds the time signal and returns it
+    """
+    padded, lens = pad_packed_sequence(sequence)
+    t, b, u = padded.shape
+    signal = getSignal(t, u, timeBias, device) # t u
+    signal = torch.unsqueeze(signal, 1) # shape (t, 1, u)
+    padded = padded + signal
+    result = pack_padded_sequence(padded, lens, enforce_sorted=False)
+    return result
 
 def packCharsWithMask(sequences):
     """Takes in a 3d list with axes: sentence, word, char
