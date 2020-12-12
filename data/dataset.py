@@ -12,6 +12,18 @@ class NERDataset(Dataset):
         Args:
             filename(str) : name of the source file of the dataset
         """
+        sentences, targets = self.readSourceAndTargets(sourceName, targetName)
+
+        self.initProperties(sentences, targets, gloveFile, symbFile)
+
+        self.initDataset(sentences, targets)
+        
+    def readTestFile(self, sourceName, targetName):
+        sentences, targets = self.readSourceAndTargets(sourceName, targetName)
+        
+        self.initDataset(sentences, targets)
+
+    def readSourceAndTargets(self, sourceName, targetName):
         with open(sourceName, 'r') as sourceFile, open(targetName, 'r') as targetFile:
             pairs = [
                 (sourceLine.strip(), targetLine.strip())
@@ -20,9 +32,22 @@ class NERDataset(Dataset):
             ]
 
         sentences, targets = zip(*pairs)
+        return sentences, targets
 
-        # make char_dict and convert sentence into char double arrays
+    def initProperties(self, sentences, targets, gloveFile, symbFile):
+        # self.pack_collate function is implemented using numTags for one hot encoding
+        self.tags  = getWordsFrom(targets)
+        self.numTags = len(self.tags)
+
+        # extract unique words and tags from the document
+        self.embeddingWeights, self.words = getGloveFromTrimmed(gloveFile, symbFile)
+
+        # init dictionaries
         self.charIdx = {c:i for i, c in enumerate(string.printable)}
+        self.wordIdx = {word: i for i, word in enumerate(self.words)}
+        self.tagIdx = {tag: i for i, tag in enumerate(self.tags)}
+
+    def initDataset(self, sentences, targets):
         self.chars = [
             [
                 [self.charIdx[c] for c in word]
@@ -30,16 +55,6 @@ class NERDataset(Dataset):
             ]
             for line in sentences
         ]
-
-        # extract unique words and tags from the document
-        self.tags  = getWordsFrom(targets)
-        self.embeddingWeights, self.words = getGloveFromTrimmed(gloveFile, symbFile)
-
-        # self.pack_collate function is implemented using numTags for one hot encoding
-        self.numTags = len(self.tags)
-
-        # make word_dict and convert sentence to list of indices
-        self.wordIdx = {word: i for i, word in enumerate(self.words)}
 
         self.sentences = [
             torch.LongTensor([
@@ -51,14 +66,12 @@ class NERDataset(Dataset):
             for sentence in sentences
         ]
 
-        # make target_dict and convert targets to list of indices
-        self.tagIdx = {tag: i for i, tag in enumerate(self.tags)}
         self.targets = [
             torch.LongTensor([self.tagIdx[tag] for tag in line.split()])
             for line in targets
         ]
-
-    def encodeSentence(self, sentence):
+        
+    def getTestExample(self, sentence):
         # returns an example trainable in the dataset
         words = torch.LongTensor([
             self.wordIdx[word]
@@ -73,6 +86,10 @@ class NERDataset(Dataset):
         ]
 
         batch = [[words, chars]]
+        return batch
+
+    def encodeSentence(self, sentence):
+        batch = self.getTestExample(sentence)
         return self.pack_collate(batch)
 
     def __len__(self):
