@@ -165,7 +165,7 @@ class DeepTransitionRNN(nn.Module):
         return PackedSequence(outputs, batchSizes, sortedIndices, unsortedIndices)
 
 
-class SequenceLabelingEncoderDecoder(nn.Module):
+class SequenceLabelingEncoderDecoder(pl.LightningModule):
     def __init__(self, inputUnits, encoderUnits, decoderUnits, transitionNumber, numTags):
         super().__init__()
         # save config
@@ -173,17 +173,20 @@ class SequenceLabelingEncoderDecoder(nn.Module):
         self.encoderUnits = encoderUnits
         self.decoderUnits = decoderUnits
         self.transitionNumber = transitionNumber
-        
+        self.tarEmbUnits = decoderUnits
+
         # encoder is bidirectional, but decoder is unidirectional
         self.targetEmbedding = nn.Sequential(
-                                    nn.Embedding(numTags, decoderUnits),
+                                    nn.Embedding(numTags, self.tarEmbUnits),
                                     nn.Dropout(0.5)
                                 )
         self.fowardEncoder   = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
         self.backwardEncoder = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
-        self.decoder         = DeepTransitionRNN(2*encoderUnits, decoderUnits, transitionNumber)
+        self.postEncode      = nn.Sequential(nn.Linear(2*encoderUnits, decoderUnits), nn.Tanh())
+
+        self.decoder         = DeepTransitionRNN(2*encoderUnits + self.tarEmbUnits, decoderUnits, transitionNumber)
         self.output          = nn.Sequential(
-                                    nn.Linear(decoderUnits, decoderUnits),
+                                    nn.Linear(decoderUnits + self.tarEmbUnits, decoderUnits),
                                     nn.Tanh(),
                                     nn.Dropout(0.5),
                                     nn.Linear(decoderUnits, numTags)
@@ -197,10 +200,33 @@ class SequenceLabelingEncoderDecoder(nn.Module):
         encoded = torch.cat([forwardEncoded.data, reversedBackwardEncoded.data], dim=-1)
         return encoded
     
-    def decode_once(self, sequence, prevTarget):
-        ht = self.decoder.cell_forward(sequence, prevTarget)
-        logit = self.output(ht)
-        return logit
+    def get_decoder_initial_state(self, encoded, *argsForPackedSequence):
+        """
+            Mean pools encoded across time
+        """
+        # deal encoded as packed sequence
+        encoded = PackedSequence(encoded, *argsForPackedSequence)
+
+        # first pad the encoded
+        encoded, lens = pad_packed_sequence(encoded)
+
+        # encode.sum will have shape b, u and lens has shape (t, )
+        # expand shape to allow broadcast division
+        denominator = torch.unsqueeze(lens, -1).to(self.device)
+
+        # sum and divide to get mean
+        x = encoded.sum(dim=0) / denominator
+
+        # return the result of linear + tanh function
+        return self.postEncode(x)
+    
+    def decode_once(self, encoded, prevTarget, hiddenState):
+        inputState = torch.cat([encoded, prevTarget], dim=-1)
+        hiddenState = self.decoder.cell_forward(inputState, hiddenState)
+
+        featuresForLinear = torch.cat([hiddenState, prevTarget], dim=-1)
+        logit = self.output(featuresForLinear)
+        return hiddenState, logit
 
     def enforced_logits(self, sequence:PackedSequence, targets:PackedSequence):
         encoded = self.encode(sequence)
@@ -208,14 +234,18 @@ class SequenceLabelingEncoderDecoder(nn.Module):
         # encoded is a tensor here and not a packed sequence
         start = 0
         logits = []
-        prevTarget = None
+        prevTarget = torch.zeros(sequence.batch_sizes[0].item(), self.decoderUnits).to(self.device)
         targetVectors = self.targetEmbedding(targets.data)
+        hiddenState = self.get_decoder_initial_state(encoded, *sequence[1:])
         for batch in sequence.batch_sizes:
-            logit = self.decode_once(encoded[start:start+batch], prevTarget)
-            
+            hiddenState, logit = self.decode_once(
+                encoded[start:start+batch],
+                prevTarget[:batch],
+                hiddenState
+            )
             # update prevTarget after processing current timestep
-            logits.append(logit)
             prevTarget = targetVectors[start:start+batch]
+            logits.append(logit)
             start = start + batch
         logits = torch.cat(logits)
 
@@ -314,31 +344,49 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         loss = - oneHot * F.log_softmax(logits, dim=1)
         return loss.sum(dim=1).mean()
     
-    def f1_metric(self, targets, logits):
-        preds = logits.argmax(dim=1)
+    # def f1_metric(self, targets, logits):
+    #     preds = logits.argmax(dim=1)
     
     def inferOneStep(self, words, chars, charMask, prevTarget, refresh=False):
         if refresh:
-            sequence = self.contextEncoder(words, chars, charMask)
-            self.encodedStore = self.sequenceLabeller.encode(sequence)
+            
+            self.store = Namespace(encoded=encoded, hiddenState=hiddenState)
+
         if prevTarget is not None:
             prevTarget = self.sequenceLabeller.targetEmbedding(prevTarget)
         nextLogits = self.sequenceLabeller.decode_once(self.encodedStore, prevTarget)
         return nextLogits
     
     def testForward(self, batch):
+        # encode everything and init vars for decoder
         words, chars, charMask = batch
+        wcg = self.contextEncoder(words, chars, charMask)
+        encoded = self.sequenceLabeller.encode(wcg)
+        hiddenState = self.sequenceLabeller.get_decoder_initial_state(encoded, *wcg[1:])
+
+        prevTarget  = torch.zeros(
+                        wcg.batch_sizes[0].item(),
+                        self.sequenceLabeller.tarEmbUnits
+                    ).to(self.device)
         start = 0
-        prevTarget = None
-        decoded = []
+        preds = []
         for b in words.batch_sizes:
-            refresh = start == 0
-            logits = self.inferOneStep(words, chars, charMask, prevTarget, refresh)
+            # refresh = start == 0
+            # logits = self.inferOneStep(words, chars, charMask, prevTarget, refresh)
+            hiddenState, logits = self.sequenceLabeller.decode_once(
+                encoded[start:start+b],
+                prevTarget[:b],
+                hiddenState
+            )
+            
+            # include logic here for beam search to expand
             prevTarget = logits.argmax(axis=1)
-            decoded.append(prevTarget)
+
+            preds.append(prevTarget)
+            prevTarget = self.sequenceLabeller.targetEmbedding(prevTarget)
             start += b
-        decoded = torch.cat(decoded)
-        return PackedSequence(decoded, *words[1:])
+        preds = torch.cat(preds)
+        return PackedSequence(preds, *words[1:])
 
     def training_step(self, batch, batch_idx):
         words, chars, charMask, targets = batch

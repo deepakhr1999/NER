@@ -28,7 +28,7 @@ contextOutputUnits = 128
 contextTransitionNumber = transitionNumber = 4
 encoderUnits = 256
 decoderUnits = 256
-prevCheckpointPath = 'lightning_logs/version_0/checkpoints/epoch=100.ckpt'
+prevCheckpointPath = 'lightning_logs/version_15/checkpoints/epoch=0.ckpt'
 kwargs = dict(numChars=numChars, charEmbedding=charEmbedding, numWords=numWords,
                  wordEmbedding=wordEmbedding, contextOutputUnits=contextOutputUnits, contextTransitionNumber=contextTransitionNumber,
                     encoderUnits=encoderUnits, decoderUnits=decoderUnits, transitionNumber=transitionNumber, numTags=data.numTags)
