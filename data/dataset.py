@@ -121,15 +121,16 @@ class NERDataset(Dataset):
         targets = pack_padded_sequence(targets, lens, enforce_sorted=False)
         return words, chars, mask, targets
 
-    def getLoader(self, tokenCap=4096):
-        sampler = TokenSampler(self.getLengths(), tokenCap)
+    def getLoader(self, tokenCap=4096, shuffle=True):
+        sampler = TokenSampler(self.getLengths(), tokenCap, shuffle)
         return DataLoader(self, batch_sampler=sampler, collate_fn=self.pack_collate)
 
 class TokenSampler(Sampler):
-    def __init__(self, lengths, tokenCap):
+    def __init__(self, lengths, tokenCap, shuffle):
         self.lengths = lengths
         self.tokenCap = max(tokenCap, max(lengths))
-    
+        self.shuffle = shuffle
+
     def __len__(self):
         return sum(self.lengths) // self.tokenCap + 1
     
@@ -140,7 +141,10 @@ class TokenSampler(Sampler):
         """
         
         # buffer stores random permutation of indices
-        self.buffer = torch.randperm(len(self.lengths))
+        if self.shuffle:
+            self.buffer = torch.randperm(len(self.lengths))
+        else:
+            self.buffer = torch.arange(len(self.lengths))
         
         batch = []
         runningSum = 0

@@ -1,9 +1,10 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from models.utils import param, reverse_packed_sequence, Namespace, recursiveXavier, addTimeSignal, getSignal
+from models.utils import param, reverse_packed_sequence, Namespace, recursiveXavier, addTimeSignal, getSignal, rnnPlusWarmupDecay
 from torch.nn.utils.rnn import PackedSequence, pad_packed_sequence, pack_padded_sequence
 import pytorch_lightning as pl
+from torch.optim.lr_scheduler import LambdaLR
 
 class CNNEmbedding(nn.Module):
     """Model that takes input of shape [n_words, n_chars] and returns char embedding of shape [n_words, embeddingDim]
@@ -363,18 +364,24 @@ class GlobalContextualDeepTransition(pl.LightningModule):
     #         prevTarget = self.sequenceLabeller.targetEmbedding(prevTarget)
     #     nextLogits = self.sequenceLabeller.decode_once(self.encodedStore, prevTarget)
     #     return nextLogits
+    def encode(self, words, chars, charMask):
+        """
+            Encodes the batch, inits the hiddenState and prevTarget(y_{t-1})
+        """
+        wcg = self.contextEncoder(words, chars, charMask)
+        encoded = self.sequenceLabeller.encode(wcg)
+        hiddenState = self.sequenceLabeller.get_decoder_initial_state(encoded, *wcg[1:])
+        prevTarget  = torch.zeros(
+                        words.batch_sizes[0].item(), # number of examples in the batch
+                        self.sequenceLabeller.tarEmbUnits
+                    ).to(self.device)
+        return encoded, hiddenState, prevTarget
     
     def testForward(self, batch):
         # encode everything and init vars for decoder
         words, chars, charMask = batch
-        wcg = self.contextEncoder(words, chars, charMask)
-        encoded = self.sequenceLabeller.encode(wcg)
-        hiddenState = self.sequenceLabeller.get_decoder_initial_state(encoded, *wcg[1:])
+        encoded, hiddenState, prevTarget = self.encode(batch)
 
-        prevTarget  = torch.zeros(
-                        wcg.batch_sizes[0].item(),
-                        self.sequenceLabeller.tarEmbUnits
-                    ).to(self.device)
         start = 0
         preds = []
         for timeBias, b in enumerate(words.batch_sizes):
@@ -412,4 +419,10 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=8e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=8e-3)
+        scheduler = {
+            'scheduler': LambdaLR(optimizer, rnnPlusWarmupDecay()),
+            'interval': 'step',
+            'frequency': 1,
+        }
+        return [optimizer], [scheduler]

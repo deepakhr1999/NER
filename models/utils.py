@@ -106,3 +106,20 @@ def recursiveXavier(m):
         # use only normal
         init.normal_(m.weight.data, 1.0)
         init.constant_(m.bias.data, 0.0)
+
+
+def rnnPlusWarmupDecay(learningRate=8e-3, minValue=5e-6):
+    def subroutine(step):
+        """
+            if the resultant lr ( = decay * learning_rate) is very small,
+            then return decay such that resultant lr becomes minvalue
+            
+            that is decay * learning_rate >= minvalue
+            so decay can never be less than minValue/learning_rate
+            therefore we max it with the least val
+            decay = max(decay, minValue/learning_rate)
+        """
+        exp = (1000 - step) / 3000
+        decay = min(1, 2 ** exp)
+        return max(decay, minValue/learningRate)
+    return subroutine
