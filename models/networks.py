@@ -416,6 +416,9 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         # compute loss using averaging loss across different timesteps
         loss = self.time_series_cross_entropy(logits.data, targets.data)
         
+        # log the loss so we can use it for ckpt during training
+        self.log('train_loss', loss)
+        
         return loss
 
     def configure_optimizers(self):
