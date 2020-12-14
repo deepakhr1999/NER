@@ -9,3 +9,5 @@ checkpoints/
 **.ckpt
 data/conll03/
 dump.py
+*.pkl
+*.trg

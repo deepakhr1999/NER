@@ -352,18 +352,6 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         loss = - oneHot * F.log_softmax(logits, dim=1)
         return loss.sum(dim=1).mean()
     
-    # def f1_metric(self, targets, logits):
-    #     preds = logits.argmax(dim=1)
-    
-    # def inferOneStep(self, words, chars, charMask, prevTarget, refresh=False):
-    #     if refresh:
-            
-    #         self.store = Namespace(encoded=encoded, hiddenState=hiddenState)
-
-    #     if prevTarget is not None:
-    #         prevTarget = self.sequenceLabeller.targetEmbedding(prevTarget)
-    #     nextLogits = self.sequenceLabeller.decode_once(self.encodedStore, prevTarget)
-    #     return nextLogits
     def encode(self, words, chars, charMask):
         """
             Encodes the batch, inits the hiddenState and prevTarget(y_{t-1})
