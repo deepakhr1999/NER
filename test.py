@@ -56,3 +56,5 @@ tester.writePreds(out, data.tags, predFile, testSrc)
 result = 'results/'+ os.path.basename(prevCheckpointPath) + '.' + f'beamsize={beamSize}.' + os.path.basename(predFile)
 print('Saving file at ', result)
 tester.getResultFile(testSrc, predFile, testTrg, result)
+
+os.system(f"powershell Get-Content {result} | python conlleval_perl.py")
