@@ -212,3 +212,23 @@ class BeamSearcher:
                     line = " ".join(pred)
                     file.write(line+"\n")
                     idx += 1
+
+    def getResultFile(self, srcFile, predFile, goldFile, resultFile):
+        with open(srcFile, "r", encoding="utf-8") as srcf, \
+            open(predFile, "r", encoding="utf-8") as predf, \
+            open(goldFile, "r", encoding="utf-8") as goldf, \
+            open(resultFile, "w", encoding="utf-8") as resultf:
+            badPredNum = 0
+            for src, pred, gold in zip(srcf, predf, goldf):
+                srcWords = src.strip().split()
+                goldLabels = gold.strip().split()
+                predLabels = pred.strip().split()
+                if len(goldLabels) != len(predLabels):
+                    badPredNum += 1
+                    continue
+
+                for s, g, p in zip(srcWords, goldLabels, predLabels):
+                    line = ' '.join((s, g, p)) + '\n'
+                    resultf.write(line)
+                resultf.write("\n")
+        print("Predictions with bad length:", badPredNum)
