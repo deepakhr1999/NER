@@ -21,8 +21,10 @@ def getParser():
     parser.add_argument('--ckpt', help='pytorchlightning ckpt path', required=True)
     parser.add_argument('--type', help='testa or testb', default='testa')
     parser.add_argument('--beam', help='beamsize for decoding', default=4, type=int)
-    parser.add_argument('--file', default='results/temp.txt', help="conlleval input")
+    parser.add_argument('--file', default='temp.txt', help="conlleval input")
     parser.add_argument('--cuda', default=False, action='store_true', help='use gpu')
+    parser.add_argument('--root', default="data/conll03/", help='conll03 dir (data/conll03)')
+    parser.add_argument('--notebook', default=False, action='store_true', help='if code on notebook')
     parser.add_argument(
         "-l", "--latex",
         default=False, action="store_true",
@@ -48,15 +50,19 @@ def getParser():
 
 
 def main(args):
+    if args.notebook:
+        from tqdm.notebook import tqdm
+    else:
+        from tqdm import tqdm
     # load dataset
-    sourceName = 'data/conll03/eng.train.src'
-    targetName = 'data/conll03/eng.train.trg'
-    gloveFile = 'data/conll03/trimmed.300d.Cased.txt'
-    symbFile = 'data/conll03/sym.glove'
-    testSrc = f'data/conll03/eng.{args.type}.src'
-    testTrg = f'data/conll03/eng.{args.type}.trg'
-    predFile = f"preds/{args.type}_beam{args.beam}_{os.path.basename(args.ckpt)}"
-    beamSize = args.beam
+    sourceName  = os.path.join(args.root, 'eng.train.src')
+    targetName  = os.path.join(args.root, 'eng.train.trg')
+    gloveFile   = os.path.join(args.root, 'trimmed.300d.Cased.txt')
+    symbFile    = os.path.join(args.root, 'sym.glove')
+    testSrc     = os.path.join(args.root, f'eng.{args.type}.src')
+    testTrg     = os.path.join(args.root, f'eng.{args.type}.trg')
+    predFile    = "preds.txt"
+    beamSize    = args.beam
     data = NERDataset(sourceName, targetName, gloveFile, symbFile)
     data.readTestFile(testSrc, testTrg)
     loader = data.getLoader(4096, shuffle=False)
@@ -77,7 +83,7 @@ def main(args):
     tester = BeamSearcher(beamSize=beamSize, model=model)
 
     out = []
-    for batch in tqdm(loader, desc="Performing BeamSearch"):
+    for batch in tqdm(loader, desc=f"Beam={args.beam} ckpt={os.path.basename(args.ckpt)}"):
         if args.cuda:
             batch = (w.cuda() for w in batch)
         preds = tester(batch)
@@ -86,6 +92,8 @@ def main(args):
     tester.writePreds(out, data.tags, predFile, testSrc)
     tester.getResultFile(testSrc, predFile, testTrg, args.file)
     acc, prec, rec, f1 = conll.main(args)
+    os.remove(predFile)
+    os.remove(args.file)
     return acc, prec, rec, f1
 
 if __name__ == "__main__":

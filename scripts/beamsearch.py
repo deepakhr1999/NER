@@ -231,4 +231,5 @@ class BeamSearcher:
                     line = ' '.join((s, g, p)) + '\n'
                     resultf.write(line)
                 resultf.write("\n")
-        print("Predictions with bad length:", badPredNum)
+        if badPredNum > 0:
+            print("Predictions with bad length:", badPredNum)
