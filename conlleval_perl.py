@@ -28,9 +28,22 @@ import argparse
 import sys
 from collections import defaultdict
 
+
+"""
+    Args:
+        * latex - False
+        * raw   - False
+        * delimiter - None
+        * oTag  - "O"
+"""
 # sanity check
 def parse_args():
     argparser = argparse.ArgumentParser()
+    argparser.add_argument(
+        "-f", "--file",
+        default=None,
+        help="File to read from (default is sys.stdin)"
+    )
     argparser.add_argument(
         "-l", "--latex",
         default=False, action="store_true",
@@ -227,7 +240,27 @@ def countChunks(fileIterator, args):
 
     return correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter
 
-def evaluate(correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter, latex=False):
+def getMetrics(correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter):
+    """Returns acc, prec, recall, f1"""
+
+    # sum counts
+    correctChunkSum = sum(correctChunk.values())
+    foundGuessedSum = sum(foundGuessed.values())
+    foundCorrectSum = sum(foundCorrect.values())
+
+    # sort chunk type names
+    sortedTypes = list(foundCorrect) + list(foundGuessed)
+    sortedTypes = list(set(sortedTypes))
+    sortedTypes.sort()
+
+    # compute overall precision, recall and FB1 (default values are 0.0)
+    precision, recall, FB1 = calcMetrics(correctChunkSum, foundGuessedSum, foundCorrectSum)
+    # print overall performance
+    acc = 100. * correctTags / tokenCounter if tokenCounter else 0
+
+    return acc, precision, recall, FB1
+
+def evaluate(correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter, latex=False, returnOut = False):
     # sum counts
     correctChunkSum = sum(correctChunk.values())
     foundGuessedSum = sum(foundGuessed.values())
@@ -271,12 +304,23 @@ def evaluate(correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter
         print("Overall &  %6.2f\\%% & %6.2f\\%% & %6.2f \\\\\\hline" %
               (precision,recall,FB1))
 
+def main(args):
+    # process input and count chunks
+    if args.file:
+        with open(args.file, 'r') as file:
+            correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter = countChunks(file, args)
+    else:
+        correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter = countChunks(sys.stdin, args)
+
+    # compute metrics and print if this file is run
+    if __name__ == "__main__":
+        evaluate(correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter, latex=args.latex)
+    
+    # return acc, prec, recall, f1
+    else:
+        return getMetrics(correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter)
+
 if __name__ == "__main__":
     args = parse_args()
-    # process input and count chunks
-    correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter = countChunks(sys.stdin, args)
-
-    # compute metrics and print
-    evaluate(correctChunk, foundGuessed, foundCorrect, correctTags, tokenCounter, latex=args.latex)
-
+    main(args)
     sys.exit(0)
