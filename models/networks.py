@@ -235,7 +235,7 @@ class SequenceLabelingEncoderDecoder(pl.LightningModule):
         # encoded is a tensor here and not a packed sequence
         start = 0
         logits = []
-        prevTarget = torch.zeros(sequence.batch_sizes[0].item(), self.decoderUnits).to(self.device)
+        prevTarget = torch.zeros(sequence.batch_sizes[0].item(), self.tarEmbUnits).to(self.device)
         targetVectors = self.targetEmbedding(targets.data)
         targetVectors = PackedSequence(targetVectors, *sequence[1:])
         targetVectors = addTimeSignal(targetVectors, self.device).data
