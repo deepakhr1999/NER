@@ -1,0 +1,12 @@
+{
+    "numChars": 100,
+    "charEmbedding": 128,
+    "numWords": 21388,
+    "wordEmbedding": 300,
+    "contextOutputUnits": 128,
+    "contextTransitionNumber": 2,
+    "encoderUnits": 256,
+    "decoderUnits": 256,
+    "transitionNumber": 4,
+    "numTags": 17
+}

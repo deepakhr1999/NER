@@ -174,7 +174,7 @@ class SequenceLabelingEncoderDecoder(pl.LightningModule):
         self.encoderUnits = encoderUnits
         self.decoderUnits = decoderUnits
         self.transitionNumber = transitionNumber
-        self.tarEmbUnits = decoderUnits
+        self.tarEmbUnits = 300
 
         # encoder is bidirectional, but decoder is unidirectional
         self.targetEmbedding = nn.Sequential(
@@ -266,6 +266,9 @@ class GlobalContextualEncoder(pl.LightningModule):
         self.cnn   = CNNEmbedding(numChars, charEmbedding)
         self.cnnDrop = nn.Dropout(0.5)
         
+        self.outerCnn = CNNEmbedding(numChars, charEmbedding)
+        self.outerCnnDrop = nn.Dropout(0.5)
+        
         self.glove = nn.Embedding(numWords, wordEmbedding)
         self.gloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
         self.gloveDrop = nn.Dropout(0.5)
@@ -316,7 +319,12 @@ class GlobalContextualEncoder(pl.LightningModule):
         new_shape = [nonDirectionalG.data.shape[0] // g.shape[0]] + [-1] * (len(g.shape) - 1)
         g = pack_padded_sequence(g.expand(*new_shape), lens, enforce_sorted=False)
         
-        wcg = torch.cat([g.data, wc], dim=-1)
+        
+        # this is meant to go with the global embedding
+        outerC = self.outerCnn(chars, charMask)
+        outerC = self.outerCnnDrop(outerC.data)
+        
+        wcg = torch.cat([w, outerC, g.data], dim=-1)
         wcg = PackedSequence(wcg, *args)
         return wcg
 
