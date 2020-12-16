@@ -273,8 +273,8 @@ class GlobalContextualEncoder(pl.LightningModule):
         self.gloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
         self.gloveDrop = nn.Dropout(0.5)
         
-        self.otherGloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
-        self.otherGloveDrop = nn.Dropout(0.5)
+        self.outerGloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
+        self.outerGloveDrop = nn.Dropout(0.5)
         
         self.glove.weight.requires_grad=False
         
