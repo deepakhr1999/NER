@@ -20,7 +20,7 @@ class CNNEmbedding(nn.Module):
         # init zero index to a large negative value
         self.embedding.weight.data[0] = 0
         
-        self.conv1d = nn.Conv1d(embeddingDim, embeddingDim, 3, 1, 1)
+        self.conv1d = nn.Conv1d(embeddingDim, embeddingDim, 3, 1, 1, bias=False)
     
     def forward(self, sequences, mask=None): # packed with shape (pack_len w) or p w
         x = self.embedding(sequences.data) # p w u
@@ -272,7 +272,10 @@ class GlobalContextualEncoder(pl.LightningModule):
         self.glove = nn.Embedding(numWords, wordEmbedding)
         self.gloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
         self.gloveDrop = nn.Dropout(0.5)
-                    
+        
+        self.otherGloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
+        self.otherGloveDrop = nn.Dropout(0.5)
+        
         self.glove.weight.requires_grad=False
         
         encoderInputUnits = wordEmbedding + charEmbedding
@@ -282,8 +285,8 @@ class GlobalContextualEncoder(pl.LightningModule):
     def forward(self, words, chars, charMask):
         _, *args = words
         
-        w = self.glove(words.data) + self.gloveBias
-        w = self.gloveDrop(w)
+        origW = self.glove(words.data)
+        w = self.gloveDrop(origW + self.gloveBias)
 
         c = self.cnn(chars, charMask)
         c = self.cnnDrop(c.data)
@@ -324,6 +327,7 @@ class GlobalContextualEncoder(pl.LightningModule):
         outerC = self.outerCnn(chars, charMask)
         outerC = self.outerCnnDrop(outerC.data)
         
+        outerW = self.outerGloveDrop(origW + self.outerGloveBias)
         wcg = torch.cat([w, outerC, g.data], dim=-1)
         wcg = PackedSequence(wcg, *args)
         return wcg
