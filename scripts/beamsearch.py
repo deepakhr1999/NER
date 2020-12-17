@@ -6,6 +6,7 @@ class BeamSearcher:
         self.beamSize = beamSize
         self.model = model
         self.decoderUnits = model.sequenceLabeller.decoderUnits
+        self.tarEmbUnits = model.sequenceLabeller.tarEmbUnits
         self.outputUnits = model.numTags
         
     def rootInitialization(self, batch):
@@ -73,7 +74,7 @@ class BeamSearcher:
     def updateHiddenState(self, depth, currBatchSize):
         """Model decodes once, updating the hiddenstate. Returns logProbs."""
         # add the timeSignal to the target embeddings
-        self.prevTarget += getSignal(1, self.decoderUnits, depth, self.model.device)
+        self.prevTarget += getSignal(1, self.tarEmbUnits, depth, self.model.device)
         
         # update the hiddenState
         with torch.no_grad():
