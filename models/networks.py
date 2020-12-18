@@ -6,6 +6,13 @@ from torch.nn.utils.rnn import PackedSequence, pad_packed_sequence, pack_padded_
 import pytorch_lightning as pl
 from torch.optim.lr_scheduler import LambdaLR
 
+def smoothingLoss(preds, target, eps=0.1):
+    n = preds.size(-1)
+    log_preds = F.log_softmax(preds, dim=-1)
+    loss = - log_preds.sum(dim=-1).mean()
+    nll = F.nll_loss(log_preds, target, reduction='mean')
+    return eps * loss / n + (1-eps) * nll
+
 class CNNEmbedding(nn.Module):
     """Model that takes input of shape [n_words, n_chars] and returns char embedding of shape [n_words, embeddingDim]
        
@@ -350,19 +357,13 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         self.apply(recursiveXavier)
         self.contextEncoder.glove.weight = torch.nn.Parameter(gloveEmbedding, requires_grad=False)
 
-    def time_series_cross_entropy(self, logits, targets):
-        # convert targets to onehot and smooth the labels
-        alpha = 0.1
-        p = 1. - alpha
-        q = alpha / (self.numTags - 1)
-
-        # convert targets to one hot using p and q
-        b = targets.size(0)
-        oneHot = torch.ones(b, self.numTags) * q
-        oneHot[torch.arange(b), targets] =  p
-        oneHot = oneHot.to(self.device)
-        loss = - oneHot * F.log_softmax(logits, dim=1)
-        return loss.sum(dim=1).mean()
+    def smoothingLoss(self, preds, target, epsilon=0.1):
+        numTags = preds.size(-1)
+        logPreds = F.log_softmax(preds, dim=-1)
+        loss = - logPreds.sum(dim=-1).mean()
+        nll = F.nll_loss(logPreds, target, reduction='mean')
+        loss = epsilon * loss/numTags + (1 - epsilon) * nll
+        return loss
     
     def encode(self, words, chars, charMask):
         """
@@ -414,7 +415,7 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         logits = self.sequenceLabeller.enforced_logits(wcg, targets)
         
         # compute loss using averaging loss across different timesteps
-        loss = self.time_series_cross_entropy(logits.data, targets.data)
+        loss = self.smoothingLoss(logits.data, targets.data)
         
         # log the loss so we can use it for ckpt during training
         self.log('train_loss', loss)
