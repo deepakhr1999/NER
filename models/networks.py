@@ -186,6 +186,8 @@ class SequenceLabelingEncoderDecoder(pl.LightningModule):
         # encoder is bidirectional, but decoder is unidirectional
         self.targetEmbedding = nn.Embedding(numTags, self.tarEmbUnits)
         self.targetDropout   = nn.Dropout(.5) 
+        self.targetBias      = nn.Parameter(torch.zeros(1, self.tarEmbUnits))
+
         self.fowardEncoder   = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
         self.backwardEncoder = DeepTransitionRNN(inputUnits, encoderUnits, transitionNumber)
         self.postEncode      = nn.Sequential(nn.Linear(2*encoderUnits, decoderUnits), nn.Tanh())
@@ -227,7 +229,7 @@ class SequenceLabelingEncoderDecoder(pl.LightningModule):
         return self.postEncode(x)
     
     def decode_once(self, encoded, prevTarget, hiddenState):
-        prevTarget = self.targetDropout(prevTarget)
+        prevTarget = self.targetDropout(prevTarget + self.targetBias)
         inputState = torch.cat([encoded, prevTarget], dim=-1)
         hiddenState = self.decoder.cell_forward(inputState, hiddenState)
 
