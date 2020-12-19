@@ -270,11 +270,9 @@ class SequenceLabelingEncoderDecoder(pl.LightningModule):
 class GlobalContextualEncoder(pl.LightningModule):
     def __init__(self, numChars, charEmbedding, numWords, wordEmbedding, outputUnits, transitionNumber):
         super().__init__()
+        # no dropout for cnn
         self.cnn   = CNNEmbedding(numChars, charEmbedding)
-        self.cnnDrop = nn.Dropout(0.5)
-        
         self.outerCnn = CNNEmbedding(numChars, charEmbedding)
-        self.outerCnnDrop = nn.Dropout(0.5)
         
         self.glove = nn.Embedding(numWords, wordEmbedding)
         self.gloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
@@ -295,8 +293,7 @@ class GlobalContextualEncoder(pl.LightningModule):
         origW = self.glove(words.data)
         w = self.gloveDrop(origW + self.gloveBias)
 
-        c = self.cnn(chars, charMask)
-        c = self.cnnDrop(c.data)
+        c = self.cnn(chars, charMask).data
         
         # word and char concat, pass through encoder and we get directional global context
         wc = torch.cat([w, c], dim=-1)
@@ -331,8 +328,7 @@ class GlobalContextualEncoder(pl.LightningModule):
         
         
         # this is meant to go with the global embedding
-        outerC = self.outerCnn(chars, charMask)
-        outerC = self.outerCnnDrop(outerC.data)
+        outerC = self.outerCnn(chars, charMask).data
         
         outerW = self.outerGloveDrop(origW + self.outerGloveBias)
         wcg = torch.cat([w, outerC, g.data], dim=-1)
