@@ -420,7 +420,7 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=8e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=8e-4)
         scheduler = {
             'scheduler': LambdaLR(optimizer, rnnPlusWarmupDecay()),
             'interval': 'step',
