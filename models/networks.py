@@ -346,9 +346,10 @@ class GlobalContextualEncoder(pl.LightningModule):
 class GlobalContextualDeepTransition(pl.LightningModule):
     def __init__(self, numChars, charEmbedding, numWords,
                      wordEmbedding, contextOutputUnits, contextTransitionNumber,
-                        encoderUnits, decoderUnits, transitionNumber, numTags):
+                        encoderUnits, decoderUnits, transitionNumber, numTags, learning_rate=8e-3):
         super().__init__()
         self.numTags = numTags
+        self.learning_rate = learning_rate
         self.contextEncoder = GlobalContextualEncoder(numChars, charEmbedding, numWords,
                                                           wordEmbedding, contextOutputUnits, contextTransitionNumber)
         self.labellerInput = wordEmbedding + charEmbedding + 2 * contextOutputUnits # units in g
@@ -424,7 +425,7 @@ class GlobalContextualDeepTransition(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=8e-4)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         scheduler = {
             'scheduler': LambdaLR(optimizer, rnnPlusWarmupDecay()),
             'interval': 'step',
