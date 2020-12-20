@@ -55,7 +55,7 @@ def getSignal(t, u, timeBias, device):
     invTimeScale = torch.exp(torch.arange(n, dtype=torch.float, device=device) * -logTimeScaleInc)
     scaledTime = torch.unsqueeze(positions, 1) * torch.unsqueeze(invTimeScale, 0) # shape (t, u/2)
     signal = torch.cat([torch.sin(scaledTime), torch.cos(scaledTime)], axis=1) # shape (t, u)
-    return signal
+    return signal * (u ** -.5)
 
 def addTimeSignal(sequence:PackedSequence, device, timeBias:float=.0)->PackedSequence:
     """
