@@ -277,10 +277,10 @@ class GlobalContextualEncoder(pl.LightningModule):
         
         self.glove = nn.Embedding(numWords, wordEmbedding)
         self.gloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
-        self.gloveDrop = nn.Dropout(0.5)
+        self.srcDrop = nn.Dropout(0.5)
         
         self.outerGloveBias = nn.Parameter(torch.zeros(1, wordEmbedding))
-        self.outerGloveDrop = nn.Dropout(0.5)
+        self.outerSrcDrop = nn.Dropout(0.5)
         
         self.glove.weight.requires_grad=False
         
@@ -290,18 +290,18 @@ class GlobalContextualEncoder(pl.LightningModule):
         
     def forward(self, words, chars, charMask):
         _, *args = words
-        
         origW = self.glove(words.data)
-        w = self.gloveDrop(origW + self.gloveBias)
 
+        w = origW + self.gloveBias
         c = self.cnn(chars, charMask).data
         
         # word and char concat, pass through encoder and we get directional global context
         wc = torch.cat([w, c], dim=-1)
         forwardInput  = PackedSequence( wc, *args )
 
-        # add time signal
+        # add time signal then dropout
         forwardInput = addTimeSignal(forwardInput, self.device)
+        forwardInput = PackedSequence(self.srcDrop(forwardInput.data), *args)
 
         forwardG  = self.forwardEncoder(forwardInput)
         
@@ -329,11 +329,15 @@ class GlobalContextualEncoder(pl.LightningModule):
         
         
         # this is meant to go with the global embedding
-        outerC = self.outerCnn(chars, charMask).data
-        
-        outerW = self.outerGloveDrop(origW + self.outerGloveBias)
-        wcg = torch.cat([w, outerC, g.data], dim=-1)
+        w = origW + self.outerGloveBias
+        c = self.outerCnn(chars, charMask).data
+        wcg = torch.cat([w, c, g.data], dim=-1)
         wcg = PackedSequence(wcg, *args)
+
+        # add time signal then dropout
+        wcg = addTimeSignal(wcg, self.device)
+        wcg = PackedSequence(self.outerSrcDrop(wcg.data), *args)
+        
         return wcg
 
 """
