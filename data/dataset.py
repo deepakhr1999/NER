@@ -85,7 +85,8 @@ class NERDataset(Dataset):
             for word in sentence.split()
         ]
 
-        batch = [[words, chars]]
+        targets = torch.zeros_like(words)
+        batch = [[words, chars, targets]]
         return batch
 
     def encodeSentence(self, sentence):

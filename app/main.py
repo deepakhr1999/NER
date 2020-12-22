@@ -1,4 +1,4 @@
-import os,sys,inspect
+import os,sys,inspect, json
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir) 
@@ -10,6 +10,7 @@ from data.dataset import NERDataset
 from models.networks import GlobalContextualDeepTransition
 from torch.nn.utils.rnn import pad_packed_sequence
 import re
+from scripts.beamsearch import BeamSearcher
 
 app = Flask(__name__)
 CORS(app) # needed for cross-domain requests, allow everything by default
@@ -20,20 +21,13 @@ gloveFile = 'data/conll03/trimmed.300d.Cased.txt'
 symbFile = 'data/conll03/sym.glove'
 data = NERDataset(sourceName, targetName, gloveFile, symbFile)
 
-numChars = 100
-charEmbedding = 128
-numWords = len(data.wordIdx)
-wordEmbedding = 300
-contextOutputUnits = 128
-contextTransitionNumber = transitionNumber = 4
-encoderUnits = 256
-decoderUnits = 256
-prevCheckpointPath = 'lightning_logs/version_15/checkpoints/epoch=0.ckpt'
-kwargs = dict(numChars=numChars, charEmbedding=charEmbedding, numWords=numWords,
-                 wordEmbedding=wordEmbedding, contextOutputUnits=contextOutputUnits, contextTransitionNumber=contextTransitionNumber,
-                    encoderUnits=encoderUnits, decoderUnits=decoderUnits, transitionNumber=transitionNumber, numTags=data.numTags)
+with open('config.json', 'r') as file:
+    kwargs = json.load(file)
+prevCheckpointPath = 'lightning_logs/epoch=475-step=23799.ckpt'
+
 model = GlobalContextualDeepTransition.load_from_checkpoint(prevCheckpointPath, **kwargs)
 model.eval()
+tester = BeamSearcher(beamSize=4, model=model)
 
 @app.route('/')
 def index():
@@ -41,11 +35,8 @@ def index():
 
 @app.route('/api/<sentence>')
 def forward(sentence):
-    inp = re.sub(r'[^\w\s]', '', sentence)
-    inp = data.encodeSentence(inp)
-    out = model.testForward(inp)
-    out, lens = pad_packed_sequence(out)
-    out = out.view(-1).numpy()
+    processedInput = data.encodeSentence(sentence)
+    out = tester(processedInput)[0]
     out = ' '.join([data.tags[i] for i in out])
     return Response(out)
 
