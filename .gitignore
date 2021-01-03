@@ -6,7 +6,6 @@
 **/.vs
 .vscode
 checkpoints/
-**.ckpt
 data/conll03/
 results/*
 preds/*
