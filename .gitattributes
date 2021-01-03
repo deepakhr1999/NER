@@ -1,0 +1,1 @@
+lightning_logs/epoch=475-step=23799.ckpt filter=lfs diff=lfs merge=lfs -text
