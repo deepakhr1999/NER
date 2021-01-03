@@ -6,10 +6,4 @@
 **/.vs
 .vscode
 checkpoints/
-data/conll03/
-results/*
-preds/*
-dump.py
-*.pkl
-*.trg
-*.txt
+**.txt
