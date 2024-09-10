@@ -3,13 +3,9 @@
 """
 
 import json
-import torch
-import pickle
 import os
 import argparse
 from torch.utils.data import DataLoader
-from tqdm import tqdm
-import sys
 
 from data.dataset import NERDataset
 from models.networks import GlobalContextualDeepTransition
@@ -78,7 +74,7 @@ def main(args, loader=None, tags=None):
 
     # load model
     prevCheckpointPath = args.ckpt
-    with open('config.json', 'r') as file:
+    with open('configs/config.json', 'r') as file:
         kwargs = json.load(file)
         
     model = GlobalContextualDeepTransition.load_from_checkpoint(prevCheckpointPath, **kwargs)
