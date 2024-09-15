@@ -1,5 +1,5 @@
 """
-python train_model.py --base_dir data/conll03 \
+python train.py --base_dir data/conll03 \
     --config_file configs/config.json \
     --prev_checkpoint lightning_logs/version_7/epoch=502-step=24938.ckpt \
     --epochs 1000
