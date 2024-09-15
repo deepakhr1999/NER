@@ -21,7 +21,7 @@ gloveFile = 'data/conll03/trimmed.300d.Cased.txt'
 symbFile = 'data/conll03/sym.glove'
 data = NERDataset(sourceName, targetName, gloveFile, symbFile)
 
-with open('config.json', 'r') as file:
+with open('configs/config.json', 'r') as file:
     kwargs = json.load(file)
 prevCheckpointPath = 'lightning_logs/epoch=475-step=23799.ckpt'
 

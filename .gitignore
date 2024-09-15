@@ -6,4 +6,5 @@
 **/.vs
 .vscode
 checkpoints/
-**.txt
+lightning_logs/backup
+lightning_logs/version_*

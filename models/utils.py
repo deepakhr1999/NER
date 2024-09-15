@@ -1,7 +1,9 @@
+import os
 import torch
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, pad_sequence, PackedSequence
 from torch.nn import init
 import math
+from pytorch_lightning.callbacks import Callback
 
 class Namespace:
     """
@@ -9,6 +11,19 @@ class Namespace:
     """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+
+class SaveEachEpoch(Callback):
+    def __init__(self, dirpath, filename, period):
+        super().__init__()
+        self.dirpath = dirpath
+        self.filename = filename
+        self.period = period
+
+    def on_epoch_end(self, trainer, pl_module):
+        if trainer.current_epoch % self.period == 0:
+            path = os.path.join(self.dirpath, self.filename).format(epoch=trainer.current_epoch)
+            print("Saving at", path)
+            trainer.save_checkpoint(path)
 
 def reverse_packed_sequence(backwardOutput):
     """
